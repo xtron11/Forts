@@ -27,3 +27,25 @@ body {
 #game canvas {
   display: block;
 }
+
+.fatal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  font: 16px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  text-align: center;
+}
+
+.fatal button {
+  font: inherit;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 10px;
+  background: #2481cc;
+  color: #fff;
+}

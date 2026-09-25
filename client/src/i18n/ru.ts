@@ -8,4 +8,10 @@ export const ru = {
   'building.tower': 'Башня',
   'building.wall': 'Стена',
   'build.cannotPlace': 'Здесь не построить',
+  'build.error.overlap': 'Место занято',
+  'build.error.outOfBounds': 'За краем поля',
+  'build.error.limit': 'Больше таких не построить',
+  'error.network': 'Нет связи с сервером',
+  'error.connect': 'Не удалось подключиться к серверу',
+  'error.retry': 'Повторить',
 } as const;

@@ -1,0 +1,22 @@
+# Postgres для локальной разработки. Запуск: npm run db:up
+# Порт 5433, чтобы не конфликтовать с Postgres, установленным в системе;
+# другой порт: FORTS_DB_PORT=5434 npm run db:up (и поправить DATABASE_URL).
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: forts
+      POSTGRES_PASSWORD: forts
+      POSTGRES_DB: forts
+    ports:
+      - '127.0.0.1:${FORTS_DB_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U forts -d forts']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

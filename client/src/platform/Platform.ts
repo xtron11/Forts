@@ -1,3 +1,5 @@
+import type { LoginCredentials } from '@forts/shared';
+
 export interface PlayerInfo {
   id: string;
   name: string;
@@ -34,8 +36,8 @@ export interface Platform {
   /** Развернуть игру на максимальную доступную высоту. */
   expand(): void;
   haptic(kind: HapticKind): void;
-  /** Подписанные данные запуска для проверки на сервере ('' вне Telegram). */
-  getInitData(): string;
+  /** Чем подтвердить личность на сервере: подписанный initData или тестовый игрок. */
+  getLoginCredentials(): LoginCredentials;
   getTheme(): ThemeInfo;
   onThemeChange(cb: (theme: ThemeInfo) => void): void;
   /** Отступы в CSS-пикселях, которые нельзя перекрывать интерфейсом. */

@@ -2,17 +2,17 @@ import { footprintSize, type PlacedBuilding } from '@forts/shared';
 
 /** a целиком «за» b хотя бы по одной оси поля — значит, рисуется раньше. */
 function isBehind(a: PlacedBuilding, b: PlacedBuilding): boolean {
-  return a.col + footprintSize(a.type) <= b.col || a.row + footprintSize(a.type) <= b.row;
+  return a.x + footprintSize(a.type) <= b.x || a.y + footprintSize(a.type) <= b.y;
 }
 
 function frontKey(b: PlacedBuilding): number {
   const s = footprintSize(b.type);
-  return b.col + b.row + 2 * s;
+  return b.x + b.y + 2 * s;
 }
 
 /**
  * Порядок отрисовки зданий с разным размером основания. Простая сортировка
- * по col+row ошибается для больших зданий, поэтому строим граф «кто за кем»
+ * по x+y ошибается для больших зданий, поэтому строим граф «кто за кем»
  * и сортируем топологически. Если оба здания «за» друг другом (стоят по
  * диагонали), на экране они не пересекаются и порядок не важен.
  */

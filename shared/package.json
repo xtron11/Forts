@@ -7,9 +7,12 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

@@ -2,9 +2,16 @@ import Phaser from 'phaser';
 import type { BuildingType } from '@forts/shared';
 import type { Palette } from './theme';
 
+/** Здание, которое тянут с панели на поле. */
+export interface BuildingDrag {
+  type: BuildingType;
+  pointerId: number;
+}
+
 /** Состояние, общее для сцен мира и интерфейса. */
 export class UiState extends Phaser.Events.EventEmitter {
-  selected: BuildingType = 'townhall';
+  selected: BuildingType = 'goldmine';
+  drag: BuildingDrag | null = null;
   /** Области экрана (в пикселях канваса), занятые интерфейсом, — туда не ставим здания. */
   blockers: Phaser.Geom.Rectangle[] = [];
 
@@ -16,6 +23,16 @@ export class UiState extends Phaser.Events.EventEmitter {
     if (type === this.selected) return;
     this.selected = type;
     this.emit('select', type);
+  }
+
+  /** Палец/кнопка мыши зажаты на кнопке здания — дальше мир ведёт перетаскивание. */
+  startDrag(type: BuildingType, pointerId: number): void {
+    this.select(type);
+    this.drag = { type, pointerId };
+  }
+
+  endDrag(): void {
+    this.drag = null;
   }
 
   setPalette(palette: Palette): void {

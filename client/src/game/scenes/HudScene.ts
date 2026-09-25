@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, BUILDINGS, STARTING_RESOURCES, type BuildingType } from '@forts/shared';
+import { BUILDING_TYPES, BUILDINGS, type BuildingType } from '@forts/shared';
 import { getLocale, t } from '../../i18n';
 import { polygon } from '../buildingView';
 import { getGameContext, type GameContext } from '../context';
@@ -89,9 +89,10 @@ export class HudScene extends Phaser.Scene {
 
     // Ресурсы справа налево: еда, затем золото.
     let cursor = x + w - 12 * s;
+    const { resources: amounts, name: playerName } = this.ctx.base.player;
     const resources: [string, number, number][] = [
-      [t('hud.food'), STARTING_RESOURCES.food, FOOD_COLOR],
-      [t('hud.gold'), STARTING_RESOURCES.gold, GOLD_COLOR],
+      [t('hud.food'), amounts.food, FOOD_COLOR],
+      [t('hud.gold'), amounts.gold, GOLD_COLOR],
     ];
     for (const [label, amount, color] of resources) {
       const value = this.text(cursor, y + h / 2 + 1 * s, amount.toLocaleString(getLocale()), 16 * s, palette.hudText, true).setOrigin(1, 0);
@@ -103,7 +104,7 @@ export class HudScene extends Phaser.Scene {
     }
 
     const nameX = x + 14 * s;
-    const name = this.text(nameX, y + h / 2, this.ctx.player.name, 16 * s, palette.hudText, true).setOrigin(0, 0.5);
+    const name = this.text(nameX, y + h / 2, playerName, 16 * s, palette.hudText, true).setOrigin(0, 0.5);
     const maxNameW = cursor - nameX;
     if (name.width > maxNameW) {
       name.setCrop(0, 0, maxNameW, name.height);
@@ -134,7 +135,7 @@ export class HudScene extends Phaser.Scene {
         .zone(bx, y, btnW, h)
         .setOrigin(0)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.select(type));
+        .on('pointerdown', (pointer: Phaser.Input.Pointer) => this.startDrag(type, pointer));
     });
 
     return new Phaser.Geom.Rectangle(x, y, w, h);
@@ -157,9 +158,9 @@ export class HudScene extends Phaser.Scene {
     g.strokePath();
   }
 
-  private select(type: BuildingType): void {
-    if (type === this.ctx.ui.selected) return;
-    this.ctx.platform.haptic('selection');
-    this.ctx.ui.select(type);
+  /** Нажатие выбирает здание; если не отпускать и потянуть — оно переносится на поле. */
+  private startDrag(type: BuildingType, pointer: Phaser.Input.Pointer): void {
+    if (type !== this.ctx.ui.selected) this.ctx.platform.haptic('selection');
+    this.ctx.ui.startDrag(type, pointer.id);
   }
 }

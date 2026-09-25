@@ -1,3 +1,4 @@
+import type { LoginCredentials } from '@forts/shared';
 import type { HapticKind, Platform, PlayerInfo, SafeAreaInsets, ThemeInfo } from './Platform';
 import type { TelegramWebApp } from './telegram-types';
 
@@ -46,8 +47,8 @@ export class TelegramPlatform implements Platform {
     }
   }
 
-  getInitData(): string {
-    return this.webApp.initData;
+  getLoginCredentials(): LoginCredentials {
+    return { kind: 'telegram', initData: this.webApp.initData };
   }
 
   getTheme(): ThemeInfo {

@@ -9,6 +9,8 @@ export interface Palette {
   hudText: number;
   hudMuted: number;
   accent: number;
+  /** Подсветка места, где здание можно поставить. */
+  valid: number;
   danger: number;
 }
 
@@ -21,6 +23,7 @@ const LIGHT: Palette = {
   hudText: 0x1f2933,
   hudMuted: 0x7b8794,
   accent: 0x2481cc,
+  valid: 0x2e7d32,
   danger: 0xe53935,
 };
 
@@ -33,6 +36,7 @@ const DARK: Palette = {
   hudText: 0xf5f5f5,
   hudMuted: 0x8a9aa9,
   accent: 0x5eb5f7,
+  valid: 0x66bb6a,
   danger: 0xef5350,
 };
 

@@ -1,7 +1,10 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    // Только для тестов (node:test). Клиент проверяет shared без типов Node,
+    // так что случайное использование Node API в shared/src сломает его сборку.
+    "types": ["node"]
   },
   "include": ["src"]
 }

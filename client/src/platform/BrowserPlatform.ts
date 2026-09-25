@@ -1,3 +1,4 @@
+import type { LoginCredentials } from '@forts/shared';
 import type { HapticKind, Platform, PlayerInfo, SafeAreaInsets, ThemeInfo } from './Platform';
 
 const VIBRATION_MS: Record<HapticKind, number | number[]> = {
@@ -12,17 +13,21 @@ const VIBRATION_MS: Record<HapticKind, number | number[]> = {
 
 /**
  * Запуск в обычном браузере для разработки. Тестового игрока можно
- * настроить через URL: ?name=Вася&lang=en&id=42
+ * настроить через URL: ?name=Вася&lang=en&id=42. Сервер пускает его
+ * только в режиме разработки; у каждого id своя база.
  */
 export class BrowserPlatform implements Platform {
   readonly kind = 'browser';
   private readonly player: PlayerInfo;
+  private readonly devId: number;
   private readonly darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
   constructor() {
     const params = new URLSearchParams(window.location.search);
+    const id = Number(params.get('id'));
+    this.devId = Number.isInteger(id) && id > 0 ? id : 1;
     this.player = {
-      id: params.get('id') ?? 'dev-player',
+      id: `dev-${this.devId}`,
       name: params.get('name') ?? 'Dev Player',
       languageCode: params.get('lang') ?? navigator.language ?? 'en',
     };
@@ -40,8 +45,8 @@ export class BrowserPlatform implements Platform {
     navigator.vibrate?.(VIBRATION_MS[kind]);
   }
 
-  getInitData(): string {
-    return '';
+  getLoginCredentials(): LoginCredentials {
+    return { kind: 'dev', devId: this.devId, name: this.player.name, languageCode: this.player.languageCode };
   }
 
   getTheme(): ThemeInfo {
