@@ -20,6 +20,11 @@ const STATUS: Record<ApiErrorCode, number> = {
   not_producer: 422,
   nothing_to_collect: 422,
   storage_full: 422,
+  unknown_troop: 400,
+  invalid_count: 400,
+  no_barracks: 422,
+  barracks_level_too_low: 422,
+  army_full: 422,
   internal: 500,
 };
 

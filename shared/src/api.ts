@@ -2,10 +2,12 @@
  * Контракт HTTP API между клиентом и сервером: пути, тела запросов,
  * ответы и коды ошибок.
  */
+import type { ArmyStack, TrainError, TrainingItem } from './army';
 import type { PlacedBuilding, PlacementError } from './base';
 import type { BuildingType } from './buildings';
 import type { RuleError } from './economy';
 import type { Resources, ResourceType } from './resources';
+import type { TroopType } from './troops';
 
 export const API_ROUTES = {
   authTelegram: '/auth/telegram',
@@ -16,11 +18,15 @@ export const API_ROUTES = {
   upgradeBuilding: '/buildings/:id/upgrade',
   collectBuilding: '/buildings/:id/collect',
   moveBuilding: '/buildings/:id/move',
+  /** Заказать юниты в казарме. */
+  trainTroops: '/army/train',
+  /** Отменить юнит из очереди тренировки (еда возвращается). */
+  cancelTraining: '/army/queue/:id/cancel',
   /** Ответ игрока на предложение присылать уведомления. */
   writeAccess: '/notifications/write-access',
 } as const;
 
-/** Путь с подставленным id здания, например /buildings/7/upgrade. */
+/** Путь с подставленным id здания или юнита в очереди, например /buildings/7/upgrade. */
 export function buildingPath(route: string, id: number): string {
   return route.replace(':id', String(id));
 }
@@ -94,6 +100,17 @@ export interface BaseSnapshot {
   serverTime: number;
   player: PlayerDto;
   buildings: PlacedBuilding[];
+  army: ArmyDto;
+}
+
+/** Армия игрока: готовые юниты и очередь тренировки (по порядку готовности). */
+export interface ArmyDto {
+  /** Место в армии — сумма по казармам. */
+  capacity: number;
+  /** Занято готовыми юнитами и очередью. */
+  used: number;
+  troops: ArmyStack[];
+  queue: TrainingItem[];
 }
 
 export type MeResponse = BaseSnapshot;
@@ -121,6 +138,18 @@ export interface MoveBuildingRequest {
 
 export type MoveBuildingResponse = BaseSnapshot;
 
+// ---------- Армия ----------
+
+export interface TrainTroopsRequest {
+  troop: TroopType;
+  /** Сколько юнитов, 1..MAX_TRAIN_BATCH. */
+  count: number;
+}
+
+export type TrainTroopsResponse = BaseSnapshot;
+
+export type CancelTrainingResponse = BaseSnapshot;
+
 // ---------- Уведомления ----------
 
 export interface WriteAccessRequest {
@@ -143,7 +172,8 @@ export type ApiErrorCode =
   | 'nothing_to_collect'
   | 'storage_full'
   | PlacementError
-  | RuleError;
+  | RuleError
+  | TrainError;
 
 export interface ApiErrorResponse {
   error: ApiErrorCode;

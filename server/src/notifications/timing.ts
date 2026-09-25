@@ -3,7 +3,7 @@
  * спама, поэтому числа живут на сервере, а не в shared.
  */
 
-export const NOTIFICATION_TYPES = ['build_done', 'storage_full'] as const;
+export const NOTIFICATION_TYPES = ['build_done', 'storage_full', 'army_ready'] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export function isNotificationType(value: unknown): value is NotificationType {

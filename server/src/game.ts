@@ -9,15 +9,23 @@
  */
 import {
   accumulated,
+  armyCapacity,
+  cancelTraining,
   checkBuild,
   checkPlacement,
+  checkTrain,
   checkUpgrade,
   collect,
   newBuildingState,
+  scheduleTraining,
   settleBuilding,
+  settleTraining,
   startUpgrade,
   subtractCost,
+  usedHousing,
   type ApiErrorCode,
+  type ArmyDto,
+  type ArmyStack,
   type BaseSnapshot,
   type BuildingType,
   type PlacedBuilding,
@@ -25,6 +33,8 @@ import {
   type Resources,
   type ResourceType,
   type RuleCheck,
+  type TrainCheck,
+  type TrainingItem,
 } from '@forts/shared';
 import type pg from 'pg';
 import { inTransaction, type Db } from './db';
@@ -32,7 +42,7 @@ import { trackEvent } from './events';
 import { planNotifications } from './notifications/plan';
 import { shouldAskWriteAccess } from './notifications/policy';
 import { botCanMessage, syncNotifications } from './notifications/store';
-import { BUILDING_COLUMNS, loadBuildings, toBuilding, type BuildingRow } from './rows';
+import { BUILDING_COLUMNS, loadArmy, loadBuildings, loadTraining, toBuilding, type BuildingRow } from './rows';
 
 interface PlayerRow {
   id: number;
@@ -68,13 +78,25 @@ function ruleFailure(check: Extract<RuleCheck, { ok: false }>, what: string): Fa
   return fail(check.reason, `Cannot ${what}: ${check.reason}${details ? ` (${details})` : ''}`);
 }
 
-/** База игрока внутри транзакции: ресурсы и здания уже с завершёнными к now стройками. */
+function trainFailure(check: Extract<TrainCheck, { ok: false }>, troop: string): Failure {
+  const details = [check.requiredBarracks && `barracks ${check.requiredBarracks} required`, check.free !== undefined && `${check.free} free`]
+    .filter(Boolean)
+    .join(', ');
+  return fail(check.reason, `Cannot train ${troop}: ${check.reason}${details ? ` (${details})` : ''}`);
+}
+
+/**
+ * База игрока внутри транзакции: ресурсы, здания с завершёнными к now
+ * стройками, армия с дотренированными к now юнитами и оставшаяся очередь.
+ */
 interface BaseTx {
   client: pg.PoolClient;
   playerId: number;
   now: number;
   resources: Resources;
   buildings: PlacedBuilding[];
+  army: ArmyStack[];
+  queue: TrainingItem[];
 }
 
 async function saveBuilding(client: pg.PoolClient, b: PlacedBuilding): Promise<void> {
@@ -86,6 +108,29 @@ async function saveBuilding(client: pg.PoolClient, b: PlacedBuilding): Promise<v
 
 async function saveResources(client: pg.PoolClient, playerId: number, r: Resources): Promise<void> {
   await client.query('UPDATE players SET gold = $2, food = $3 WHERE id = $1', [playerId, r.gold, r.food]);
+}
+
+/**
+ * Переводит дотренированные к now юниты из очереди в армию — как стройки,
+ * при первом запросе после finish_at.
+ */
+async function settleArmy(client: pg.PoolClient, playerId: number, now: number): Promise<{ army: ArmyStack[]; queue: TrainingItem[] }> {
+  const settled = settleTraining(await loadArmy(client, playerId), await loadTraining(client, playerId), now);
+  if (settled.done.length > 0) {
+    await client.query('DELETE FROM training_queue WHERE id = ANY($1)', [settled.done.map((q) => q.id)]);
+    for (const s of settled.army) {
+      await client.query(
+        `INSERT INTO army (player_id, troop, level, count) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (player_id, troop, level) DO UPDATE SET count = EXCLUDED.count`,
+        [playerId, s.troop, s.level, s.count],
+      );
+    }
+  }
+  return { army: settled.army, queue: settled.queue };
+}
+
+function toArmyDto(buildings: readonly PlacedBuilding[], army: ArmyStack[], queue: TrainingItem[], now: number): ArmyDto {
+  return { capacity: armyCapacity(buildings, now), used: usedHousing(army, queue), troops: army, queue };
 }
 
 function toPlayerDto(p: PlayerRow, buildings: readonly PlacedBuilding[], now: number): PlayerDto {
@@ -133,18 +178,34 @@ async function runAction<T extends object>(
       buildings.push(settled);
     }
 
-    const tx: BaseTx = { client, playerId, now, resources: { gold: row.gold, food: row.food }, buildings };
+    const { army, queue } = await settleArmy(client, playerId, now);
+
+    const tx: BaseTx = { client, playerId, now, resources: { gold: row.gold, food: row.food }, buildings, army, queue };
     const result = await action(tx);
 
     const fresh = await client.query<PlayerRow>(`SELECT ${PLAYER_COLUMNS} FROM players WHERE id = $1`, [playerId]);
     const p = fresh.rows[0]!;
     const all = await loadBuildings(client, playerId);
+    const freshArmy = await loadArmy(client, playerId);
+    const freshQueue = await loadTraining(client, playerId);
     // Игрок видит базу сейчас: уведомлять можно только о том, что случится позже.
-    const planned = planNotifications({ buildings: all, since: now, canMessage: botCanMessage(p), disabled: p.notifications_off });
+    const planned = planNotifications({
+      buildings: all,
+      training: freshQueue,
+      since: now,
+      canMessage: botCanMessage(p),
+      disabled: p.notifications_off,
+    });
     await syncNotifications(client, playerId, planned, now);
 
     if (isFailure(result)) return result;
-    return { ...result, serverTime: now, player: toPlayerDto(p, all, now), buildings: all };
+    return {
+      ...result,
+      serverTime: now,
+      player: toPlayerDto(p, all, now),
+      buildings: all,
+      army: toArmyDto(all, freshArmy, freshQueue, now),
+    };
   });
 }
 
@@ -246,6 +307,43 @@ export function moveBuilding(db: Db, playerId: number, id: number, x: number, y:
     if (!place.ok) return fail(place.reason, `Cannot move #${id} to (${x}, ${y}): ${place.reason}`);
 
     await saveBuilding(tx.client, { ...building, x, y });
+    return {};
+  });
+}
+
+/**
+ * Заказывает count юнитов troop: есть казарма нужного уровня, место в
+ * армии (с учётом очереди) и еда. Юниты встают в конец очереди по одному.
+ */
+export function trainTroops(db: Db, playerId: number, troop: string, count: number, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    const check = checkTrain(tx.resources, tx.buildings, tx.army, tx.queue, troop, count, tx.now);
+    if (!check.ok) return trainFailure(check, troop);
+
+    await saveResources(tx.client, tx.playerId, { ...tx.resources, food: tx.resources.food - check.food * count });
+    for (const finishAt of scheduleTraining(tx.queue, check.seconds, count, tx.now)) {
+      await tx.client.query(
+        `INSERT INTO training_queue (player_id, troop, level, food, seconds, finish_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tx.playerId, troop, check.level, check.food, check.seconds, new Date(finishAt), new Date(tx.now)],
+      );
+    }
+    return {};
+  });
+}
+
+/** Убирает юнит из очереди и возвращает его еду; следующие юниты будут готовы раньше. */
+export function cancelTrainingItem(db: Db, playerId: number, id: number, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    const result = cancelTraining(tx.queue, id, tx.now);
+    if (!result) return fail('not_found', `Training item ${id} not found`);
+
+    await tx.client.query('DELETE FROM training_queue WHERE id = $1', [id]);
+    const before = new Map(tx.queue.map((q) => [q.id, q.finishAt]));
+    for (const q of result.queue) {
+      if (before.get(q.id) === q.finishAt) continue;
+      await tx.client.query('UPDATE training_queue SET finish_at = $2 WHERE id = $1', [q.id, new Date(q.finishAt)]);
+    }
+    await saveResources(tx.client, tx.playerId, { ...tx.resources, food: tx.resources.food + result.refund });
     return {};
   });
 }

@@ -5,7 +5,7 @@
  * событие пропало из плана — pending становится cancelled.
  */
 import type pg from 'pg';
-import { loadBuildings } from '../rows';
+import { loadBuildings, loadTraining } from '../rows';
 import { planNotifications, type NotificationPayload, type PlannedNotification } from './plan';
 
 export type NotificationStatus = 'pending' | 'sent' | 'cancelled' | 'failed';
@@ -119,8 +119,10 @@ export async function resyncNotifications(client: pg.PoolClient, playerId: numbe
   const player = rows[0];
   if (!player) return;
   const buildings = await loadBuildings(client, playerId);
+  const training = await loadTraining(client, playerId);
   const planned = planNotifications({
     buildings,
+    training,
     since: player.last_seen_at.getTime(),
     canMessage: botCanMessage(player),
     disabled: player.notifications_off,

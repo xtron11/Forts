@@ -7,7 +7,7 @@ export const en: Dictionary = {
   'bot.start': '🏰 Hi, {name}! This is Forts: build a fortress, mine gold and farm food, train an army and raid your neighbours.\n\nTap "Play" 👇',
   'bot.start.noApp': '🏰 Hi, {name}! This is Forts. The mini app is not configured yet (WEBAPP_URL).',
   'bot.help':
-    '🏰 Forts is a strategy game for a couple of minutes a day.\n\n⛏ Mines produce gold and 🌾 farms produce food even while you are away.\n🔨 Build and upgrade — builders work on their own.\n🔔 The bot reminds you when construction is done or storages are full.\n\n/start — open the game\n/settings — notifications\n/help — this help',
+    '🏰 Forts is a strategy game for a couple of minutes a day.\n\n⛏ Mines produce gold and 🌾 farms produce food even while you are away.\n🔨 Build and upgrade — builders work on their own.\n🔔 The bot reminds you when construction is done, storages are full or the army is trained.\n\n/start — open the game\n/settings — notifications\n/help — this help',
   'bot.settings': '🔔 Notifications. Tap to turn on or off:',
   'bot.settings.on': 'Turned on',
   'bot.settings.off': 'Turned off',
@@ -20,6 +20,7 @@ export const en: Dictionary = {
 
   'notifType.build_done': 'Construction complete',
   'notifType.storage_full': 'Mines and farms are full',
+  'notifType.army_ready': 'Army ready',
 
   'building.townhall': 'Town Hall',
   'building.goldmine': 'Gold Mine',
@@ -32,9 +33,11 @@ export const en: Dictionary = {
   'notif.upgraded': ['🔨 {building} upgraded to lv. {level}!', '✅ Builders are done: {building} is now lv. {level}.', '🏗 {building} lv. {level} is ready — your fortress grows!'],
   'notif.full.gold': ['⛏ Your mines are full of gold — collect it before mining stops!', '💰 No more room for gold in your mines. Time to collect!', '⛏ Mines are full. Come grab your gold!'],
   'notif.full.food': ['🌾 Your farms are full — collect the harvest!', '🍞 No more room for food on your farms. Time to collect!', '🌾 Farms are full. The harvest is waiting!'],
+  'notif.army': ['⚔️ Your army is ready for battle! Time to raid.', '🛡 Training is complete — your troops await orders.', '⚔️ All troops are trained. The neighbours have no idea what is coming!'],
   'notif.digest': ['🏰 Fortress news:', '📜 While you were away:', '🏰 Everything is ready in your fortress:'],
   'notif.line.built': '🔨 {building} is built',
   'notif.line.upgraded': '🔨 {building} lv. {level} is ready',
   'notif.line.full.gold': '⛏ mines are full of gold',
   'notif.line.full.food': '🌾 farms are full of food',
+  'notif.line.army': '⚔️ army is ready',
 };

@@ -14,6 +14,7 @@ export interface NotificationItem {
 
 function phrase(locale: Locale, item: NotificationItem, variant: number, line: boolean): string {
   const p = item.payload;
+  if ('units' in p) return t(locale, line ? 'notif.line.army' : 'notif.army', undefined, variant);
   if ('resource' in p) return t(locale, line ? `notif.line.full.${p.resource}` : `notif.full.${p.resource}`, undefined, variant);
   const params = { building: t(locale, `building.${p.building}`), level: p.level };
   if (p.level <= 1) return t(locale, line ? 'notif.line.built' : 'notif.built', params, variant);

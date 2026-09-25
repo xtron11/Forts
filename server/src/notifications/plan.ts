@@ -3,12 +3,14 @@
  * Чистая функция: сервер вызывает её после каждого изменения базы и в
  * воркере перед отправкой, а store.ts приводит таблицу к результату.
  */
-import { fillTime, isProducer, PRODUCERS, RESOURCE_TYPES, type PlacedBuilding, type ResourceType } from '@forts/shared';
+import { fillTime, isProducer, PRODUCERS, RESOURCE_TYPES, trainingDoneAt, type PlacedBuilding, type ResourceType, type TrainingItem } from '@forts/shared';
 import type { NotificationType } from './timing';
 
 export type NotificationPayload =
   | { buildingId: number; building: PlacedBuilding['type']; level: number }
-  | { resource: ResourceType };
+  | { resource: ResourceType }
+  /** Сколько юнитов было в очереди, когда планировали. */
+  | { units: number };
 
 export interface PlannedNotification {
   type: NotificationType;
@@ -22,6 +24,8 @@ export interface PlannedNotification {
 export interface PlanInput {
   /** Здания как в базе: стройки с прошедшим finishAt ещё не завершены — значит, игрок их не видел. */
   buildings: readonly PlacedBuilding[];
+  /** Очередь тренировки (юниты с прошедшим finishAt игрок, как и стройки, ещё не видел). */
+  training?: readonly Pick<TrainingItem, 'finishAt'>[];
   /**
    * Когда игрок последний раз был в игре. События до этого момента он уже
    * видел; уведомлять можно только о более поздних.
@@ -33,7 +37,7 @@ export interface PlanInput {
   disabled: readonly string[];
 }
 
-export function planNotifications({ buildings, since, canMessage, disabled }: PlanInput): PlannedNotification[] {
+export function planNotifications({ buildings, training = [], since, canMessage, disabled }: PlanInput): PlannedNotification[] {
   if (!canMessage) return [];
   const planned: PlannedNotification[] = [];
 
@@ -60,6 +64,15 @@ export function planNotifications({ buildings, since, canMessage, disabled }: Pl
         if (at !== undefined && at > since && at < first) first = at;
       }
       if (first !== Infinity) planned.push({ type: 'storage_full', key: resource, eventAt: first, payload: { resource } });
+    }
+  }
+
+  // Армия готова — когда дотренируется последний юнит очереди.
+  if (!disabled.includes('army_ready')) {
+    const doneAt = trainingDoneAt(training);
+    if (doneAt !== undefined && doneAt > since) {
+      const units = training.filter((q) => q.finishAt > since).length;
+      planned.push({ type: 'army_ready', key: 'army', eventAt: doneAt, payload: { units } });
     }
   }
 

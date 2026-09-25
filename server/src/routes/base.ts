@@ -1,20 +1,35 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   API_ROUTES,
+  MAX_TRAIN_BATCH,
   type ApiErrorResponse,
+  type CancelTrainingResponse,
   type CollectResponse,
   type MeResponse,
   type MoveBuildingRequest,
   type MoveBuildingResponse,
   type PlaceBuildingRequest,
   type PlaceBuildingResponse,
+  type TrainTroopsRequest,
+  type TrainTroopsResponse,
   type UpgradeBuildingResponse,
   type WriteAccessRequest,
   type WriteAccessResponse,
 } from '@forts/shared';
 import type { Db } from '../db';
 import { sendError } from '../errors';
-import { collectBuilding, isFailure, loadBase, moveBuilding, placeBuilding, setWriteAccess, upgradeBuilding, type Failure } from '../game';
+import {
+  cancelTrainingItem,
+  collectBuilding,
+  isFailure,
+  loadBase,
+  moveBuilding,
+  placeBuilding,
+  setWriteAccess,
+  trainTroops,
+  upgradeBuilding,
+  type Failure,
+} from '../game';
 
 // Существование типа и границы поля проверяет checkPlacement — так клиент
 // получает конкретный код ошибки, а не общий validation.
@@ -101,5 +116,30 @@ export async function baseRoutes(app: FastifyInstance, { db, now }: { db: Db; no
       },
     },
     async (request, reply) => send(reply, await setWriteAccess(db, playerId(request.user.sub), request.body.granted, now())),
+  );
+
+  app.post<{ Body: TrainTroopsRequest; Reply: TrainTroopsResponse | ApiErrorResponse }>(
+    API_ROUTES.trainTroops,
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['troop', 'count'],
+          additionalProperties: false,
+          // Существование войска проверяет checkTrain — клиент получает код unknown_troop.
+          properties: { troop: { type: 'string', maxLength: 32 }, count: { type: 'integer', minimum: 1, maximum: MAX_TRAIN_BATCH } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { troop, count } = request.body;
+      return send(reply, await trainTroops(db, playerId(request.user.sub), troop, count, now()));
+    },
+  );
+
+  app.post<{ Params: IdParams; Reply: CancelTrainingResponse | ApiErrorResponse }>(
+    API_ROUTES.cancelTraining,
+    { schema: { params: ID_PARAMS } },
+    async (request, reply) => send(reply, await cancelTrainingItem(db, playerId(request.user.sub), Number(request.params.id), now())),
   );
 }

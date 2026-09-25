@@ -58,6 +58,15 @@ describe('план уведомлений', () => {
     assert.deepEqual(planNotifications({ buildings: bs, since: T0, canMessage: false, disabled: [] }), []);
     assert.deepEqual(new Set(plan(bs, T0, ['storage_full']).map((p) => p.type)), new Set(['build_done']));
   });
+
+  it('army_ready — одно, на готовность последнего юнита очереди', () => {
+    const training = [{ finishAt: T0 + MIN }, { finishAt: T0 + 3 * MIN }, { finishAt: T0 + 2 * MIN }];
+    const planned = planNotifications({ buildings: [], training, since: T0, canMessage: true, disabled: [] });
+    assert.deepEqual(planned, [{ type: 'army_ready', key: 'army', eventAt: T0 + 3 * MIN, payload: { units: 3 } }]);
+    // Игрок уже видел готовую армию или выключил тип — не уведомляем.
+    assert.deepEqual(planNotifications({ buildings: [], training, since: T0 + 3 * MIN, canMessage: true, disabled: [] }), []);
+    assert.deepEqual(planNotifications({ buildings: [], training, since: T0, canMessage: true, disabled: ['army_ready'] }), []);
+  });
 });
 
 describe('дедупликация: таблица против плана', () => {
