@@ -41,6 +41,8 @@ npm run db:migrate   # применить новые миграции
 npm test             # тесты shared и server
 npm run typecheck    # проверка типов во всех пакетах
 npm run build        # проверка типов + сборка клиента в client/dist
+npm run build:server # сборка server + shared в JavaScript (server/dist)
+npm run start:server # запуск собранного сервера: миграции, затем приём запросов
 ```
 
 Сбросить базу полностью: `docker compose down -v`, затем `npm run db:up && npm run db:migrate`.
@@ -58,9 +60,38 @@ npm run build        # проверка типов + сборка клиента
 | `DATABASE_URL` | строка подключения к Postgres |
 | `JWT_SECRET` | секрет для JWT, не короче 32 символов |
 | `CORS_ORIGIN` | адреса клиента через запятую |
-| `HOST`, `PORT` | необязательно, по умолчанию `127.0.0.1:3000` |
+| `HOST`, `PORT` | необязательно, по умолчанию `0.0.0.0:3000` |
 
 `client/.env` (образец — `client/.env.example`): `VITE_API_URL` — адрес API. В режиме разработки по умолчанию `http://localhost:3000`, для сборки обязателен.
+
+## Деплой сервера на Railway
+
+Сервис собирается из корня монорепозитория (Root Directory не задаётся). Команды уже описаны в [railway.json](railway.json), Railway подхватит их сам:
+
+- Build Command: `npm run build:server` — esbuild собирает `server/src` вместе с `shared` в `server/dist`;
+- Start Command: `npm run start:server` — `node server/dist/index.js` без tsx;
+- Healthcheck Path: `/health`.
+
+Сборщик (esbuild) лежит в `dependencies` сервера, поэтому сборка работает и при `NODE_ENV=production`, когда npm не ставит devDependencies. Проверка типов в сборку не входит — запускайте `npm run typecheck` перед пушем.
+
+Настройка:
+
+1. New Project → Deploy from GitHub repo → выбрать этот репозиторий.
+2. В проекте: New → Database → PostgreSQL.
+3. В сервисе сервера → Variables:
+   | Переменная | Значение |
+   |---|---|
+   | `NODE_ENV` | `production` |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (ссылка на базу из шага 2) |
+   | `BOT_TOKEN` | токен бота от @BotFather |
+   | `JWT_SECRET` | новый ключ: `openssl rand -hex 32` (не тот, что локально) |
+   | `CORS_ORIGIN` | адрес клиента на Vercel, например `https://forts.vercel.app` |
+
+   `PORT` задаёт сам Railway, сервер его читает и слушает `0.0.0.0`.
+4. Settings → Networking → Generate Domain — получить публичный адрес API.
+5. На Vercel в переменных клиента указать `VITE_API_URL=https://<домен из шага 4>` и пересобрать клиент.
+
+Миграции применяются автоматически при каждом старте сервера до приёма запросов; уже применённые пропускаются. Вход тестового игрока (`/auth/dev`) в production отключён.
 
 ## API
 

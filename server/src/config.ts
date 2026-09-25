@@ -69,7 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl,
     jwtSecret,
     corsOrigins,
-    host: env.HOST?.trim() || '127.0.0.1',
+    host: env.HOST?.trim() || '0.0.0.0',
     port,
   };
 }

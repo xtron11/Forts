@@ -1,12 +1,12 @@
 /**
  * Применяет SQL-миграции из server/migrations по порядку имён. Каждая
  * выполняется в своей транзакции и записывается в schema_migrations,
- * повторный запуск применяет только новые.
+ * повторный запуск применяет только новые. Сервер вызывает migrate при
+ * старте; вручную — npm run db:migrate (src/migrateCli.ts).
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './config';
-import { createDb, inTransaction, type Db } from './db';
+import { inTransaction, type Db } from './db';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations/', import.meta.url));
 
@@ -36,14 +36,4 @@ export async function migrate(db: Db, log: (msg: string) => void = console.log):
     });
   }
   log(count === 0 ? 'database is up to date' : `applied ${count} migration(s)`);
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const db = createDb(loadConfig().databaseUrl);
-  migrate(db)
-    .catch((err: unknown) => {
-      console.error(err instanceof Error ? err.message : err);
-      process.exitCode = 1;
-    })
-    .finally(() => db.end());
 }

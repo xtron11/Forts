@@ -16,9 +16,14 @@
     "test": "npm test --workspaces --if-present",
     "build": "npm run typecheck && npm run build -w @forts/client",
     "preview": "npm run preview -w @forts/client --",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:server": "npm run build -w @forts/server",
+    "start:server": "node --enable-source-maps server/dist/index.js"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
