@@ -10,13 +10,21 @@ import {
   levelConfig,
   producerLevel,
   RESOURCE_TYPES,
+  checkTrain,
   townhallConfig,
+  TROOP_TYPES,
+  TROOPS,
+  troopLevelConfig,
+  troopLevelFor,
+  barracksLevel,
   type BuildingType,
   type PlacedBuilding,
   type Resources,
 } from '@forts/shared';
 import { ApiError } from '../../api/ApiClient';
 import { t, type TextKey } from '../../i18n';
+import { openBattle } from '../battle/flow';
+import { drawTroop } from '../battle/troopView';
 import { polygon } from '../buildingView';
 import { getGameContext, type GameContext } from '../context';
 import { getDpr } from '../display';
@@ -28,6 +36,8 @@ const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /** Здания в меню постройки; ратуша одна и ставится при создании базы. */
 const MENU_TYPES = BUILDING_TYPES.filter((type) => type !== 'townhall');
 const MENU_ROW_H = 58;
+/** Высота блока обучения войск в панели казармы, CSS-пиксели. */
+const TRAINING_H = 82;
 
 /**
  * Интерфейс поверх мира: ресурсы с заполнением хранилища, строители,
@@ -74,6 +84,8 @@ export class HudScene extends Phaser.Scene {
     base.on('change', onBase);
     base.on('pending', rebuild);
     this.scale.on(Phaser.Scale.Events.RESIZE, rebuild);
+    // После боя: интерфейс мог устареть, пока сцена спала (перестройка идёт по UPDATE).
+    this.events.on(Phaser.Scenes.Events.WAKE, () => this.build());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       ui.off('palette', rebuild);
       ui.off('change', rebuild);
@@ -248,13 +260,22 @@ export class HudScene extends Phaser.Scene {
     this.text(x + 40 * s, y + h / 2 + 2 * s, t('hud.builders'), 10 * s, palette.hudMuted).setOrigin(0, 0);
     // Число занятых меняется, когда стройка закончится, — сервер пришлёт новое состояние.
 
-    const btnW = 140 * s;
+    const btnW = Math.min(130 * s, (w - chipW - 16 * s) / 2);
     const bx = x + w - btnW;
     this.panel(bx, y, btnW, h, s, palette.accent);
     this.text(bx + btnW / 2, y + h / 2, t('menu.build'), 17 * s, 0xffffff, true).setOrigin(0.5);
     this.tapZone(bx, y, btnW, h, () => {
       this.ctx.platform.haptic('selection');
       ui.setMenuOpen(true);
+    });
+
+    // «В бой»: поиск цели и атака.
+    const ax = bx - 8 * s - btnW;
+    this.panel(ax, y, btnW, h, s, palette.danger);
+    this.text(ax + btnW / 2, y + h / 2, t('menu.attack'), 17 * s, 0xffffff, true).setOrigin(0.5);
+    this.tapZone(ax, y, btnW, h, () => {
+      this.ctx.platform.haptic('medium');
+      openBattle(this);
     });
 
     // Блокирует только полосу снизу: между чипом и кнопкой касания идут в мир.
@@ -392,7 +413,9 @@ export class HudScene extends Phaser.Scene {
 
     const headerH = 44 * s;
     const btnH = 52 * s;
-    const h = headerH + lines.length * lineH + (progress ? 12 * s : 0) + 10 * s + btnH + (reason ? 22 * s : 0) + 12 * s;
+    const training = b.type === 'barracks' && b.level >= 1;
+    const trainingH = training ? TRAINING_H * s : 0;
+    const h = headerH + lines.length * lineH + (progress ? 12 * s : 0) + trainingH + 10 * s + btnH + (reason ? 22 * s : 0) + 12 * s;
     const y = bottom - h;
     this.panel(x, y, w, h, s);
 
@@ -413,6 +436,10 @@ export class HudScene extends Phaser.Scene {
       const p = progress;
       this.tickers.push(() => setBar(p()));
       cy += 12 * s;
+    }
+    if (training) {
+      this.buildTraining(x + 16 * s, cy, w - 32 * s, s);
+      cy += trainingH;
     }
     cy += 10 * s;
 
@@ -467,6 +494,64 @@ export class HudScene extends Phaser.Scene {
     if (reason) this.text(ux + uw / 2, cy + btnH + 6 * s, t(reason.key, reason.params), 12 * s, palette.danger).setOrigin(0.5, 0);
 
     return new Phaser.Geom.Rectangle(x, y, w, h);
+  }
+
+  // ---------- Казарма: обучение войск ----------
+
+  /** Строка армии и кнопки войск; тап — обучить одного юнита. */
+  private buildTraining(x: number, y: number, w: number, s: number): void {
+    const { palette } = this.ctx.ui;
+    const { base, platform } = this.ctx;
+    const { army } = base;
+    this.text(x, y + 10 * s, t('army.title', { used: army.used, capacity: army.capacity }), 14 * s, palette.hudText, true).setOrigin(0, 0.5);
+    const queue = this.text(x + w, y + 10 * s, '', 12 * s, palette.hudMuted).setOrigin(1, 0.5);
+    this.tickers.push(() => {
+      const now = base.now();
+      const pending = base.army.queue.filter((q) => q.finishAt > now);
+      queue.setText(pending.length > 0 ? t('army.queue', { count: pending.length, time: formatCountdown(pending[0]!.finishAt - now) }) : t('army.queueEmpty'));
+    });
+
+    const gap = 8 * s;
+    const bw = (w - gap * (TROOP_TYPES.length - 1)) / TROOP_TYPES.length;
+    const bh = 50 * s;
+    const by = y + 24 * s;
+    const bLevel = barracksLevel(base.buildings, base.now());
+    TROOP_TYPES.forEach((troop, i) => {
+      const bx = x + i * (bw + gap);
+      const level = troopLevelFor(troop, bLevel);
+      const check = checkTrain(base.resources, base.buildings, army.troops, army.queue, troop, 1, base.now());
+      const cfg = troopLevelConfig(troop, Math.max(1, level))!;
+      const before = this.children.list.length;
+      this.panel(bx, by, bw, bh, s, palette.hudBg, check.ok ? palette.accent : palette.hudMuted);
+      const icon = this.add.graphics();
+      drawTroop(icon, troop, 15 * s);
+      icon.setPosition(bx + 17 * s, by + bh / 2);
+      const tx = bx + 34 * s;
+      this.text(tx, by + bh / 2 - 1 * s, t(`troop.${troop}`), 12 * s, palette.hudText, true).setOrigin(0, 1);
+      if (level === 0) {
+        this.text(tx, by + bh / 2 + 2 * s, t('reason.barracks', { level: TROOPS[troop].levels[0]!.barracksLevel }), 10 * s, palette.danger).setOrigin(0, 0);
+      } else {
+        this.cost(tx, by + bh / 2 + 9 * s, { gold: 0, food: cfg.food }, s, 11 * s);
+      }
+      if (!check.ok) this.createdSince(before).forEach((o) => (o as unknown as Phaser.GameObjects.Components.Alpha).setAlpha(0.55));
+      this.tapZone(bx, by, bw, bh, () => {
+        if (!check.ok) {
+          platform.haptic('warning');
+          const msg =
+            check.reason === 'barracks_level_too_low'
+              ? { key: 'reason.barracks' as const, params: { level: check.requiredBarracks ?? '?' } }
+              : errorMessage(check.reason);
+          this.showToast(t(msg.key, msg.params));
+          return;
+        }
+        platform.haptic('light');
+        base.train(troop).catch((err: unknown) => {
+          platform.haptic('error');
+          const msg = errorMessage(err instanceof ApiError ? err.code : 'network');
+          this.showToast(t(msg.key, msg.params));
+        });
+      });
+    });
   }
 
   // ---------- Режимы постановки и переноса ----------

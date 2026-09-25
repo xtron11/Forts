@@ -49,6 +49,17 @@ export function errorMessage(code: string): Message {
       return { key: 'collect.storageFull' };
     case 'nothing_to_collect':
       return { key: 'collect.nothing' };
+    case 'army_full':
+      return { key: 'reason.armyFull' };
+    case 'no_barracks':
+      return { key: 'reason.noBarracks' };
+    case 'barracks_level_too_low':
+      return { key: 'reason.barracks', params: { level: '?' } };
+    case 'no_troops':
+    case 'not_enough_troops':
+      return { key: 'reason.noTroops' };
+    case 'forbidden_zone':
+      return { key: 'battle.forbidden' };
     case 'network':
       return { key: 'error.network' };
     default:

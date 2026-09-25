@@ -39,10 +39,11 @@ import {
 import type pg from 'pg';
 import { inTransaction, type Db } from './db';
 import { trackEvent } from './events';
+import { expireBattle, type PlayerState } from './battles/close';
 import { planNotifications } from './notifications/plan';
 import { shouldAskWriteAccess } from './notifications/policy';
 import { botCanMessage, syncNotifications } from './notifications/store';
-import { BUILDING_COLUMNS, loadArmy, loadBuildings, loadTraining, toBuilding, type BuildingRow } from './rows';
+import { BUILDING_COLUMNS, loadArmy, loadBuildings, loadTraining, saveResources, toBuilding, type BuildingRow } from './rows';
 
 interface PlayerRow {
   id: number;
@@ -63,7 +64,7 @@ export interface Failure {
   message: string;
 }
 
-function fail(error: ApiErrorCode, message: string): Failure {
+export function fail(error: ApiErrorCode, message: string): Failure {
   return { error, message };
 }
 
@@ -89,7 +90,7 @@ function trainFailure(check: Extract<TrainCheck, { ok: false }>, troop: string):
  * База игрока внутри транзакции: ресурсы, здания с завершёнными к now
  * стройками, армия с дотренированными к now юнитами и оставшаяся очередь.
  */
-interface BaseTx {
+export interface BaseTx {
   client: pg.PoolClient;
   playerId: number;
   now: number;
@@ -104,10 +105,6 @@ async function saveBuilding(client: pg.PoolClient, b: PlacedBuilding): Promise<v
     `UPDATE buildings SET x = $2, y = $3, level = $4, finish_at = $5, collected_at = $6, stored = $7 WHERE id = $1`,
     [b.id, b.x, b.y, b.level, b.finishAt === null ? null : new Date(b.finishAt), new Date(b.collectedAt), b.stored],
   );
-}
-
-async function saveResources(client: pg.PoolClient, playerId: number, r: Resources): Promise<void> {
-  await client.query('UPDATE players SET gold = $2, food = $3 WHERE id = $1', [playerId, r.gold, r.food]);
 }
 
 /**
@@ -153,10 +150,12 @@ function toPlayerDto(p: PlayerRow, buildings: readonly PlacedBuilding[], now: nu
  * все стройки, у которых наступил finish_at, — так здания «достраиваются»
  * без cron, при первом же запросе.
  *
+ * Так же закрывается бой, итог которого не пришёл за 5 минут.
+ *
  * Любой запрос — это «игрок в игре»: last_seen_at = now, и будущие
  * уведомления пересчитываются по новому состоянию базы.
  */
-async function runAction<T extends object>(
+export async function runAction<T extends object>(
   db: Db,
   playerId: number,
   now: number,
@@ -179,8 +178,11 @@ async function runAction<T extends object>(
     }
 
     const { army, queue } = await settleArmy(client, playerId, now);
+    // Итог боя, не пришедший вовремя, считается сейчас — тоже без cron.
+    const state: PlayerState = { playerId, now, resources: { gold: row.gold, food: row.food }, buildings, army };
+    await expireBattle(client, state);
 
-    const tx: BaseTx = { client, playerId, now, resources: { gold: row.gold, food: row.food }, buildings, army, queue };
+    const tx: BaseTx = { client, playerId, now, resources: state.resources, buildings, army: state.army, queue };
     const result = await action(tx);
 
     const fresh = await client.query<PlayerRow>(`SELECT ${PLAYER_COLUMNS} FROM players WHERE id = $1`, [playerId]);

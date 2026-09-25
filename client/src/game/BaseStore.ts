@@ -3,12 +3,14 @@ import {
   busyBuilders,
   storageCapacity,
   townhallLevel,
+  type ArmyDto,
   type BaseSnapshot,
   type BuildingType,
   type CollectResponse,
   type PlacedBuilding,
   type PlayerDto,
   type Resources,
+  type TroopType,
 } from '@forts/shared';
 import type { ApiClient } from '../api/ApiClient';
 
@@ -32,6 +34,7 @@ const HEARTBEAT_MS = 60_000;
 export class BaseStore extends Phaser.Events.EventEmitter {
   player: PlayerDto;
   buildings: PlacedBuilding[];
+  army: ArmyDto;
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshing: Promise<void> | undefined;
   /** Действия, ждущие ответа сервера: повторный тап по тому же не отправляет второй запрос. */
@@ -44,6 +47,7 @@ export class BaseStore extends Phaser.Events.EventEmitter {
     super();
     this.player = snapshot.player;
     this.buildings = snapshot.buildings;
+    this.army = snapshot.army;
     this.scheduleRefresh();
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') void this.refresh();
@@ -85,6 +89,7 @@ export class BaseStore extends Phaser.Events.EventEmitter {
   apply(snapshot: BaseSnapshot): void {
     this.player = snapshot.player;
     this.buildings = snapshot.buildings;
+    this.army = snapshot.army;
     this.scheduleRefresh();
     this.emit('change');
   }
@@ -121,6 +126,14 @@ export class BaseStore extends Phaser.Events.EventEmitter {
     return this.run(`move:${id}`, () => this.api.moveBuilding(id, { x, y }));
   }
 
+  train(troop: TroopType) {
+    return this.run(`train:${troop}`, () => this.api.trainTroops(troop, 1));
+  }
+
+  cancelTraining(id: number) {
+    return this.run(`cancelTraining:${id}`, () => this.api.cancelTraining(id));
+  }
+
   answerWriteAccess(granted: boolean) {
     return this.run('writeAccess', () => this.api.reportWriteAccess(granted));
   }
@@ -141,7 +154,9 @@ export class BaseStore extends Phaser.Events.EventEmitter {
 
   private scheduleRefresh(): void {
     const now = this.now();
-    const next = Math.min(...this.buildings.map((b) => (b.finishAt !== null && b.finishAt > now - RETRY_MS ? b.finishAt : Infinity)));
+    // Ближайшее событие: конец стройки или готовность юнита в казарме.
+    const times = [...this.buildings.map((b) => b.finishAt), ...this.army.queue.map((q) => q.finishAt)];
+    const next = Math.min(...times.map((at) => (at !== null && at > now - RETRY_MS ? at : Infinity)));
     if (next === Infinity) {
       clearTimeout(this.refreshTimer);
       return;

@@ -4,6 +4,8 @@
  */
 import type { ArmyStack, TrainError, TrainingItem } from './army';
 import type { PlacedBuilding, PlacementError } from './base';
+import type { DeployOrder, OrderError } from './battle/orders';
+import type { BattleBase, TroopCount } from './battle/types';
 import type { BuildingType } from './buildings';
 import type { RuleError } from './economy';
 import type { Resources, ResourceType } from './resources';
@@ -22,6 +24,14 @@ export const API_ROUTES = {
   trainTroops: '/army/train',
   /** Отменить юнит из очереди тренировки (еда возвращается). */
   cancelTraining: '/army/queue/:id/cancel',
+  /** Найти цель (или вернуть уже найденную); next — другая цель за золото. */
+  battleSearch: '/battles/search',
+  /** Начать бой с найденной целью. */
+  battleStart: '/battles/start',
+  /** Промежуточные высадки — на случай, если итог не придёт. */
+  battleDeployments: '/battles/:id/deployments',
+  /** Итог боя: сервер пересчитывает его сам. */
+  battleFinish: '/battles/:id/finish',
   /** Ответ игрока на предложение присылать уведомления. */
   writeAccess: '/notifications/write-access',
 } as const;
@@ -150,6 +160,82 @@ export type TrainTroopsResponse = BaseSnapshot;
 
 export type CancelTrainingResponse = BaseSnapshot;
 
+// ---------- Бой ----------
+
+export interface BattleSearchRequest {
+  /** true — другая цель (стоит золота); false — текущая найденная или первая бесплатно. */
+  next: boolean;
+}
+
+/** Найденная цель: превью базы и возможная добыча. */
+export interface BattleTargetDto {
+  /** Номер будущего боя. */
+  id: number;
+  townhallLevel: number;
+  base: BattleBase;
+  /** Сколько можно унести при 100%. */
+  lootPreview: Resources;
+  /** Цена кнопки «Следующая», золото. */
+  nextCost: number;
+}
+
+export interface BattleSearchResponse extends BaseSnapshot {
+  target: BattleTargetDto;
+}
+
+export interface ActiveBattleDto {
+  id: number;
+  base: BattleBase;
+  seed: number;
+  /** Армия на начало боя — из неё высаживаются войска и по ней назначаются уровни. */
+  army: ArmyStack[];
+  /** Время начала на сервере, мс. */
+  startedAt: number;
+}
+
+export interface BattleStartResponse extends BaseSnapshot {
+  battle: ActiveBattleDto;
+}
+
+export interface BattleDeploymentsRequest {
+  /** Все высадки с начала боя (каждый раз полный список). */
+  deployments: DeployOrder[];
+}
+
+export interface BattleDeploymentsResponse {
+  saved: number;
+}
+
+export interface BattleFinishRequest {
+  deployments: DeployOrder[];
+  /** Тик, на котором бой кончился у клиента (сам или кнопкой «Завершить»). */
+  endTick: number;
+}
+
+export type BattleEndReason = 'finish' | 'timeout' | 'abandoned';
+
+/** Итог боя — посчитан сервером. */
+export interface BattleReport {
+  id: number;
+  reason: BattleEndReason;
+  stars: number;
+  destruction: number;
+  townhallDestroyed: boolean;
+  /** Добыча по бою. */
+  loot: Resources;
+  /** Сколько поместилось в хранилище. */
+  gained: Resources;
+  /** Потраченные войска. */
+  troopsUsed: TroopCount[];
+  endTick: number;
+  /** Хэш итогового состояния — клиент может сверить со своим. */
+  hash: number;
+}
+
+export interface BattleFinishResponse extends BaseSnapshot {
+  report: BattleReport;
+}
+
 // ---------- Уведомления ----------
 
 export interface WriteAccessRequest {
@@ -173,7 +259,14 @@ export type ApiErrorCode =
   | 'storage_full'
   | PlacementError
   | RuleError
-  | TrainError;
+  | TrainError
+  | OrderError
+  | 'no_troops'
+  | 'no_target'
+  | 'battle_not_found'
+  | 'battle_finished'
+  | 'battle_too_fast'
+  | 'deployments_changed';
 
 export interface ApiErrorResponse {
   error: ApiErrorCode;

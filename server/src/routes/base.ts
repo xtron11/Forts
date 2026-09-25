@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   API_ROUTES,
+  MAX_DEPLOYMENTS,
   MAX_TRAIN_BATCH,
+  type BattleDeploymentsRequest,
+  type BattleDeploymentsResponse,
+  type BattleFinishRequest,
+  type BattleFinishResponse,
+  type BattleSearchRequest,
+  type BattleSearchResponse,
+  type BattleStartResponse,
   type ApiErrorResponse,
   type CancelTrainingResponse,
   type CollectResponse,
@@ -16,6 +24,7 @@ import {
   type WriteAccessRequest,
   type WriteAccessResponse,
 } from '@forts/shared';
+import { finishBattle, saveDeployments, searchBattle, startBattle } from '../battles/actions';
 import type { Db } from '../db';
 import { sendError } from '../errors';
 import {
@@ -43,6 +52,18 @@ const ID_PARAMS = {
 } as const;
 
 type IdParams = { id: string };
+
+// Войско и зону проверяет checkOrders — клиент получает конкретный код.
+const DEPLOYMENTS = {
+  type: 'array',
+  maxItems: MAX_DEPLOYMENTS,
+  items: {
+    type: 'object',
+    required: ['tick', 'troop', 'x', 'y'],
+    additionalProperties: false,
+    properties: { tick: { type: 'integer', minimum: 0, maximum: 100000 }, troop: { type: 'string', maxLength: 32 }, x: COORD, y: COORD },
+  },
+} as const;
 
 function send<T extends object>(reply: FastifyReply, result: T | Failure, code = 200) {
   return isFailure(result) ? sendError(reply, result.error, result.message) : reply.code(code).send(result);
@@ -141,5 +162,53 @@ export async function baseRoutes(app: FastifyInstance, { db, now }: { db: Db; no
     API_ROUTES.cancelTraining,
     { schema: { params: ID_PARAMS } },
     async (request, reply) => send(reply, await cancelTrainingItem(db, playerId(request.user.sub), Number(request.params.id), now())),
+  );
+
+  app.post<{ Body: BattleSearchRequest; Reply: BattleSearchResponse | ApiErrorResponse }>(
+    API_ROUTES.battleSearch,
+    {
+      schema: {
+        body: { type: 'object', required: ['next'], additionalProperties: false, properties: { next: { type: 'boolean' } } },
+      },
+    },
+    async (request, reply) => send(reply, await searchBattle(db, playerId(request.user.sub), request.body.next, now())),
+  );
+
+  app.post<{ Reply: BattleStartResponse | ApiErrorResponse }>(API_ROUTES.battleStart, async (request, reply) =>
+    send(reply, await startBattle(db, playerId(request.user.sub), now())),
+  );
+
+  app.post<{ Params: IdParams; Body: BattleDeploymentsRequest; Reply: BattleDeploymentsResponse | ApiErrorResponse }>(
+    API_ROUTES.battleDeployments,
+    {
+      schema: {
+        params: ID_PARAMS,
+        body: { type: 'object', required: ['deployments'], additionalProperties: false, properties: { deployments: DEPLOYMENTS } },
+      },
+    },
+    async (request, reply) => {
+      const result = await saveDeployments(db, playerId(request.user.sub), Number(request.params.id), request.body.deployments, now());
+      // Промежуточный ответ лёгкий: состояние базы клиенту во время боя не нужно.
+      return isFailure(result) ? send(reply, result) : reply.send({ saved: result.saved });
+    },
+  );
+
+  app.post<{ Params: IdParams; Body: BattleFinishRequest; Reply: BattleFinishResponse | ApiErrorResponse }>(
+    API_ROUTES.battleFinish,
+    {
+      schema: {
+        params: ID_PARAMS,
+        body: {
+          type: 'object',
+          required: ['deployments', 'endTick'],
+          additionalProperties: false,
+          properties: { deployments: DEPLOYMENTS, endTick: { type: 'integer', minimum: 0, maximum: 100000 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { deployments, endTick } = request.body;
+      return send(reply, await finishBattle(db, playerId(request.user.sub), Number(request.params.id), deployments, endTick, now()));
+    },
   );
 }

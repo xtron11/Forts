@@ -1,5 +1,5 @@
 /** Строки таблиц и их перевод в типы shared — общие для игры, уведомлений и бота. */
-import { addToArmy, type ArmyStack, type BuildingType, type PlacedBuilding, type TrainingItem, type TroopType } from '@forts/shared';
+import { addToArmy, type ArmyStack, type BuildingType, type PlacedBuilding, type Resources, type TrainingItem, type TroopType } from '@forts/shared';
 import type pg from 'pg';
 
 export interface BuildingRow {
@@ -63,4 +63,17 @@ export async function loadTraining(client: pg.PoolClient, playerId: number): Pro
     [playerId],
   );
   return rows.map((r) => ({ id: r.id, troop: r.troop, level: r.level, food: r.food, seconds: r.seconds, finishAt: r.finish_at.getTime() }));
+}
+
+export async function saveResources(client: pg.PoolClient, playerId: number, r: Resources): Promise<void> {
+  await client.query('UPDATE players SET gold = $2, food = $3 WHERE id = $1', [playerId, r.gold, r.food]);
+}
+
+/** Заменяет армию игрока целиком. */
+export async function saveArmy(client: pg.PoolClient, playerId: number, army: readonly ArmyStack[]): Promise<void> {
+  await client.query('DELETE FROM army WHERE player_id = $1', [playerId]);
+  for (const s of army) {
+    if (s.count <= 0) continue;
+    await client.query('INSERT INTO army (player_id, troop, level, count) VALUES ($1, $2, $3, $4)', [playerId, s.troop, s.level, s.count]);
+  }
 }

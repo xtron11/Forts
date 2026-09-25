@@ -65,3 +65,16 @@ export const LOOT_PRODUCER_PERCENT = 50;
 
 /** Звёзды: за разрушение не меньше этого процента, за ратушу и за 100%. */
 export const STAR_DESTRUCTION_PERCENT = 50;
+
+/** Если игрок не прислал итог боя за это время, сервер закрывает бой с теми высадками, что знает. */
+export const BATTLE_FINISH_TIMEOUT_SECONDS = 5 * 60;
+
+/** Цена кнопки «Следующая» (другая цель), золото, по уровню ратуши атакующего 1..5. Первый поиск бесплатный. */
+export const SEARCH_COST_GOLD: readonly number[] = [10, 25, 50, 100, 200];
+
+/** Цели подбираются с ратушей в пределах ± этого числа уровней. */
+export const MATCH_TOWNHALL_RANGE = 1;
+
+export function searchCost(townhallLevel: number): number {
+  return SEARCH_COST_GOLD[Math.min(Math.max(townhallLevel, 1), SEARCH_COST_GOLD.length) - 1]!;
+}

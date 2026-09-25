@@ -25,6 +25,19 @@ const STATUS: Record<ApiErrorCode, number> = {
   no_barracks: 422,
   barracks_level_too_low: 422,
   army_full: 422,
+  // Бой: неверные высадки — 422 (запрос корректный, но так нельзя).
+  no_troops: 422,
+  no_target: 422,
+  battle_not_found: 404,
+  battle_finished: 409,
+  battle_too_fast: 422,
+  deployments_changed: 422,
+  too_many_deployments: 422,
+  invalid_level: 422,
+  invalid_tick: 422,
+  forbidden_zone: 422,
+  ticks_not_sorted: 422,
+  not_enough_troops: 422,
   internal: 500,
 };
 

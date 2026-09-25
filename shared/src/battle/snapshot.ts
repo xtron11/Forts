@@ -3,13 +3,21 @@
  * доверяем, ошибка — исключение), высадки — от игрока (ошибка — отказ с
  * кодом).
  */
-import { levelConfig } from '../balance';
+import { levelConfig, producerLevel } from '../balance';
 import { checkPlacement, type PlacedBuilding } from '../base';
 import { BASE_GRID_SIZE, BUILDINGS, isBuildingType } from '../buildings';
 import { accumulated, settleBuilding } from '../economy';
 import { RESOURCE_TYPES, type Resources } from '../resources';
 import { isTroopType, troopLevelConfig } from '../troops';
-import { BATTLE_MARGIN, BATTLE_MAX_TICKS, DEPLOY_MIN_DISTANCE, MAX_DEPLOYMENTS } from './config';
+import {
+  BATTLE_MARGIN,
+  BATTLE_MAX_TICKS,
+  DEPLOY_MIN_DISTANCE,
+  LOOT_PRODUCER_PERCENT,
+  LOOT_STORAGE_PERCENT,
+  MAX_DEPLOYMENTS,
+} from './config';
+import { idiv } from './math';
 import type { BattleBase, BattleBuilding, DeployCheck, Deployment } from './types';
 
 /**
@@ -87,4 +95,17 @@ export function checkDeployments(base: BattleBase, deployments: readonly Deploym
     if (zone) return { ok: false, reason: zone, index: i };
   }
   return { ok: true };
+}
+
+/** Сколько можно унести при 100% разрушения — «возможная добыча» на экране поиска. */
+export function maxLoot(base: BattleBase): Resources {
+  const loot: Resources = {
+    gold: idiv(base.resources.gold * LOOT_STORAGE_PERCENT, 100),
+    food: idiv(base.resources.food * LOOT_STORAGE_PERCENT, 100),
+  };
+  for (const b of base.buildings) {
+    const prod = producerLevel(b.type, b.level);
+    if (prod) loot[prod.resource] += idiv((b.stored ?? 0) * LOOT_PRODUCER_PERCENT, 100);
+  }
+  return loot;
 }

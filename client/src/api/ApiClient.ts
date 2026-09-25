@@ -4,13 +4,21 @@ import {
   type ApiErrorCode,
   type ApiErrorResponse,
   type AuthResponse,
+  type BattleDeploymentsResponse,
+  type BattleFinishResponse,
+  type BattleSearchResponse,
+  type BattleStartResponse,
+  type CancelTrainingResponse,
   type CollectResponse,
+  type DeployOrder,
   type LoginCredentials,
   type MeResponse,
   type MoveBuildingRequest,
   type MoveBuildingResponse,
   type PlaceBuildingRequest,
   type PlaceBuildingResponse,
+  type TrainTroopsResponse,
+  type TroopType,
   type UpgradeBuildingResponse,
   type WriteAccessResponse,
 } from '@forts/shared';
@@ -70,6 +78,30 @@ export class ApiClient {
 
   moveBuilding(id: number, body: MoveBuildingRequest): Promise<MoveBuildingResponse> {
     return this.request('POST', buildingPath(API_ROUTES.moveBuilding, id), body);
+  }
+
+  trainTroops(troop: TroopType, count: number): Promise<TrainTroopsResponse> {
+    return this.request('POST', API_ROUTES.trainTroops, { troop, count });
+  }
+
+  cancelTraining(id: number): Promise<CancelTrainingResponse> {
+    return this.request('POST', buildingPath(API_ROUTES.cancelTraining, id));
+  }
+
+  searchBattle(next: boolean): Promise<BattleSearchResponse> {
+    return this.request('POST', API_ROUTES.battleSearch, { next });
+  }
+
+  startBattle(): Promise<BattleStartResponse> {
+    return this.request('POST', API_ROUTES.battleStart, {});
+  }
+
+  reportDeployments(id: number, deployments: DeployOrder[]): Promise<BattleDeploymentsResponse> {
+    return this.request('POST', buildingPath(API_ROUTES.battleDeployments, id), { deployments });
+  }
+
+  finishBattle(id: number, deployments: DeployOrder[], endTick: number): Promise<BattleFinishResponse> {
+    return this.request('POST', buildingPath(API_ROUTES.battleFinish, id), { deployments, endTick });
   }
 
   /** Ответ на предложение уведомлений. */

@@ -9,6 +9,10 @@
  * а сервер — пересчитать и проверить.
  *
  * Порядок тика: высадка юнитов этого тика → ход юнитов → выстрелы башен.
+ *
+ * Бой можно вести и вживую (клиент): createBattle без высадок, затем
+ * addDeployment на текущем тике и stepBattle. Если высадки идут по
+ * неубывающим тикам, итог совпадает с simulate по тому же списку.
  */
 import { addToArmy } from '../army';
 import { levelConfig, producerLevel } from '../balance';
@@ -18,6 +22,7 @@ import { TILE, TROOPS, troopLevelConfig, type TroopConfig, type TroopLevel, type
 import {
   BATTLE_MARGIN,
   BATTLE_MAX_TICKS,
+  MAX_DEPLOYMENTS,
   BUILDING_BLOCK_TILES,
   BUILDING_TARGET_GROUP,
   LOOT_PRODUCER_PERCENT,
@@ -29,7 +34,7 @@ import {
 import { distSqToRect, Hasher, idiv, isqrt, Rng, type Rect } from './math';
 import { findPath, STEP_COST, tileAt, tileCenter, type PathGrid } from './path';
 import { checkDeployments, normalizeBase } from './snapshot';
-import type { BattleBase, BattleEvent, BattleResult, DeployError, Deployment, TroopCount } from './types';
+import type { BattleBase, BattleEvent, BattleResult, DeployCheck, DeployError, Deployment, TroopCount } from './types';
 
 export interface BattleBuildingState {
   readonly id: number;
@@ -102,12 +107,25 @@ export interface BattleState {
   readonly lootable: Resources;
   loot: Resources;
   readonly log: BattleEvent[] | null;
+  /**
+   * Заканчивать бой, когда все высаженные юниты погибли и новых не
+   * ожидается. false — у игрока ещё есть войска: бой идёт до конца времени,
+   * 100% или сдачи (untilTick).
+   */
+  endWhenNoTroops: boolean;
+}
+
+export interface BattleOptions {
+  /** Собирать события боя. */
+  log?: boolean;
+  /** См. BattleState.endWhenNoTroops; по умолчанию true. */
+  endWhenNoTroops?: boolean;
 }
 
 export type CreateBattleResult = { ok: true; state: BattleState } | { ok: false; reason: DeployError; index: number };
 
 /** Готовит бой. Неверная база — исключение, неверные высадки — отказ с кодом. */
-export function createBattle(input: BattleBase, deployments: readonly Deployment[], seed: number, options: { log?: boolean } = {}): CreateBattleResult {
+export function createBattle(input: BattleBase, deployments: readonly Deployment[], seed: number, options: BattleOptions = {}): CreateBattleResult {
   const base = normalizeBase(input);
   const deploys: Deployment[] = deployments.map((d) => ({ troop: d.troop, level: d.level, x: d.x, y: d.y, tick: d.tick }));
   const check = checkDeployments(base, deploys);
@@ -154,28 +172,7 @@ export function createBattle(input: BattleBase, deployments: readonly Deployment
     };
   });
 
-  const units = deploys.map(
-    (d, i): BattleUnitState => ({
-      id: i,
-      troop: d.troop,
-      level: d.level,
-      config: TROOPS[d.troop],
-      stats: troopLevelConfig(d.troop, d.level)!,
-      deployTick: d.tick,
-      spawned: false,
-      alive: false,
-      hp: 0,
-      x: d.x * TILE + TILE / 2,
-      y: d.y * TILE + TILE / 2,
-      cooldown: 0,
-      target: -1,
-      blocker: -1,
-      path: null,
-      next: 0,
-      atNode: true,
-      pathVersion: 0,
-    }),
-  );
+  const units = deploys.map(makeUnit);
   // Сортировка устойчивая: при равном тике — по номеру высадки.
   const spawnOrder = units.map((u) => u.id).sort((a, b) => units[a]!.deployTick - units[b]!.deployTick || a - b);
 
@@ -201,8 +198,48 @@ export function createBattle(input: BattleBase, deployments: readonly Deployment
       lootable,
       loot: { gold: 0, food: 0 },
       log: options.log ? [] : null,
+      endWhenNoTroops: options.endWhenNoTroops ?? true,
     },
   };
+}
+
+function makeUnit(d: Deployment, id: number): BattleUnitState {
+  return {
+    id,
+    troop: d.troop,
+    level: d.level,
+    config: TROOPS[d.troop],
+    stats: troopLevelConfig(d.troop, d.level)!,
+    deployTick: d.tick,
+    spawned: false,
+    alive: false,
+    hp: 0,
+    x: d.x * TILE + TILE / 2,
+    y: d.y * TILE + TILE / 2,
+    cooldown: 0,
+    target: -1,
+    blocker: -1,
+    path: null,
+    next: 0,
+    atNode: true,
+    pathVersion: 0,
+  };
+}
+
+/**
+ * Высадка во время живого боя — на текущий тик (юнит появится при
+ * следующем stepBattle). Те же проверки, что у simulate.
+ */
+export function addDeployment(s: BattleState, input: Deployment): DeployCheck {
+  const d: Deployment = { troop: input.troop, level: input.level, x: input.x, y: input.y, tick: input.tick };
+  const index = s.units.length;
+  if (index >= MAX_DEPLOYMENTS) return { ok: false, reason: 'too_many_deployments', index };
+  if (s.finished || d.tick !== s.tick) return { ok: false, reason: 'invalid_tick', index };
+  const check = checkDeployments(s.base, [d]);
+  if (!check.ok) return { ...check, index };
+  s.units.push(makeUnit(d, index));
+  s.spawnOrder.push(index);
+  return { ok: true };
 }
 
 function inRange(u: BattleUnitState, b: BattleBuildingState): boolean {
@@ -423,7 +460,7 @@ export function stepBattle(s: BattleState): void {
 
   s.tick++;
   const allDestroyed = s.destroyed >= s.total;
-  const noTroops = s.spawned >= s.spawnOrder.length && !s.units.some((u) => u.alive);
+  const noTroops = s.endWhenNoTroops && s.spawned >= s.spawnOrder.length && !s.units.some((u) => u.alive);
   if (allDestroyed || noTroops || s.tick >= BATTLE_MAX_TICKS) {
     s.finished = true;
     s.log?.push({ tick: s.tick, kind: 'end' });
@@ -473,14 +510,15 @@ export type SimulateOutcome =
 /**
  * Бой целиком: чистая функция от базы, высадок и seed. untilTick —
  * остановиться на этом тике (для отрисовки/перемотки), бой тогда может быть
- * не закончен. options.log — вернуть события боя.
+ * не закончен. options.log — вернуть события боя; options.endWhenNoTroops —
+ * см. BattleState.
  */
 export function simulate(
   base: BattleBase,
   deployments: readonly Deployment[],
   seed: number,
   untilTick?: number,
-  options: { log?: boolean } = {},
+  options: BattleOptions = {},
 ): SimulateOutcome {
   const created = createBattle(base, deployments, seed, options);
   if (!created.ok) return created;

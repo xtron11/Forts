@@ -3,6 +3,8 @@ import type { ApiClient } from '../api/ApiClient';
 import type { BaseSnapshot } from '@forts/shared';
 import type { Platform } from '../platform';
 import { BaseStore } from './BaseStore';
+import { BattleHudScene } from './battle/BattleHudScene';
+import { BattleScene } from './battle/BattleScene';
 import { setGameContext } from './context';
 import { getDpr } from './display';
 import { HudScene } from './scenes/HudScene';
@@ -17,7 +19,7 @@ import { UiState } from './UiState';
  */
 export function createGame(parent: HTMLElement, platform: Platform, api: ApiClient, snapshot: BaseSnapshot): Phaser.Game {
   const ui = new UiState(paletteFor(platform.getTheme()));
-  setGameContext({ platform, api, base: new BaseStore(api, snapshot), ui });
+  setGameContext({ platform, api, base: new BaseStore(api, snapshot), ui, battle: null });
 
   const dpr = getDpr();
   const game = new Phaser.Game({
@@ -29,7 +31,8 @@ export function createGame(parent: HTMLElement, platform: Platform, api: ApiClie
     antialias: true,
     scale: { mode: Phaser.Scale.NONE, zoom: 1 / dpr },
     input: { activePointers: 2 },
-    scene: [WorldScene, HudScene],
+    // Сцены боя запускаются по кнопке «В бой» поверх уснувших сцен базы.
+    scene: [WorldScene, HudScene, BattleScene, BattleHudScene],
   });
 
   const fit = () => {
