@@ -1,0 +1,29 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * В Telegram SDK выставляет --tg-viewport-stable-height: высота без учёта
+ * анимаций разворачивания. В браузере — 100dvh (учитывает панели мобильного браузера).
+ */
+#game {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  touch-action: none;
+}
+
+#game canvas {
+  display: block;
+}

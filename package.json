@@ -1,0 +1,14 @@
+{
+  "name": "forts",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @forts/client --",
+    "build": "npm run build -w @forts/client",
+    "preview": "npm run preview -w @forts/client --",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
