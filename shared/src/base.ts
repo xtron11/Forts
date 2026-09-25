@@ -7,23 +7,34 @@ export interface BuildingPlacement {
   y: number;
 }
 
-/** Здание на базе игрока. */
+/**
+ * Здание на базе игрока. Времена — миллисекунды Unix-времени сервера.
+ * Пока finishAt не null, здание строится (level 0) или улучшается до
+ * level + 1; когда наступает finishAt, стройка завершена (settleBuilding).
+ */
 export interface PlacedBuilding extends BuildingPlacement {
   id: number;
+  /** Готовый уровень; 0 — новое здание ещё строится. */
   level: number;
+  finishAt: number | null;
+  /** С какого момента идёт добыча (шахта, ферма). */
+  collectedAt: number;
+  /** Сколько уже лежало в здании к collectedAt; во время улучшения добыча стоит на этом значении. */
+  stored: number;
 }
 
 export function footprintSize(type: BuildingType): number {
   return BUILDINGS[type].size;
 }
 
-export type PlacementError = 'unknown_building_type' | 'out_of_bounds' | 'overlap' | 'limit_reached';
+export type PlacementError = 'unknown_building_type' | 'out_of_bounds' | 'overlap';
 
 export type PlacementCheck = { ok: true } | { ok: false; reason: PlacementError };
 
 /**
- * Можно ли поставить здание: тип существует, координаты — целые, основание
- * влезает в поле, не пересекается с другими и не превышен лимит по типу.
+ * Можно ли поставить здание на это место: тип существует, координаты —
+ * целые, основание влезает в поле и не пересекается с другими. Лимиты,
+ * ресурсы и строители — отдельно, в checkBuild (economy.ts).
  * Клиент использует для подсветки, сервер — для окончательного решения,
  * поэтому type принимается как произвольная строка.
  */
@@ -44,10 +55,6 @@ export function checkPlacement(
     return x < b.x + s && b.x < x + size && y < b.y + s && b.y < y + size;
   });
   if (overlaps) return { ok: false, reason: 'overlap' };
-  const { maxCount } = BUILDINGS[type];
-  if (maxCount !== undefined && buildings.filter((b) => b.type === type).length >= maxCount) {
-    return { ok: false, reason: 'limit_reached' };
-  }
   return { ok: true };
 }
 

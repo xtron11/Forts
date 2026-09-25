@@ -1,4 +1,8 @@
+import type { ResourceType } from '@forts/shared';
 import type { ThemeInfo } from '../platform';
+
+/** Цвета ресурсов — одинаковые в светлой и тёмной теме. */
+export const RESOURCE_COLORS: Readonly<Record<ResourceType, number>> = { gold: 0xf5c518, food: 0xe57373 };
 
 export interface Palette {
   background: number;

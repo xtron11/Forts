@@ -34,10 +34,6 @@ describe('checkPlacement', () => {
     assert.deepEqual(checkPlacement([], 'toString', 0, 0), { ok: false, reason: 'unknown_building_type' });
   });
 
-  it('не даёт поставить вторую ратушу', () => {
-    assert.deepEqual(checkPlacement(STARTING_BUILDINGS, 'townhall', 0, 0), { ok: false, reason: 'limit_reached' });
-  });
-
   it('стартовая база корректна', () => {
     STARTING_BUILDINGS.forEach((b, i) => {
       assert.deepEqual(checkPlacement(STARTING_BUILDINGS.slice(0, i), b.type, b.x, b.y), { ok: true });

@@ -1,18 +1,12 @@
-import type { PlacedBuilding, PlayerDto } from '@forts/shared';
 import type { ApiClient } from '../api/ApiClient';
 import type { Platform } from '../platform';
+import type { BaseStore } from './BaseStore';
 import type { UiState } from './UiState';
-
-/** База игрока в том виде, в каком её подтвердил сервер. */
-export interface BaseState {
-  player: PlayerDto;
-  buildings: PlacedBuilding[];
-}
 
 export interface GameContext {
   platform: Platform;
   api: ApiClient;
-  base: BaseState;
+  base: BaseStore;
   ui: UiState;
 }
 

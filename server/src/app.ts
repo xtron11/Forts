@@ -18,9 +18,11 @@ declare module '@fastify/jwt' {
 export interface AppDeps {
   config: Config;
   db: Db;
+  /** Текущее время, мс; тесты подставляют свои часы. */
+  now?: () => number;
 }
 
-export async function buildApp({ config, db }: AppDeps): Promise<FastifyInstance> {
+export async function buildApp({ config, db, now = Date.now }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: config.nodeEnv === 'test' ? false : { level: config.nodeEnv === 'production' ? 'info' : 'debug' },
     // Без приведения типов: {"x": "3"} — ошибка валидации, а не 3.
@@ -45,7 +47,7 @@ export async function buildApp({ config, db }: AppDeps): Promise<FastifyInstance
 
   app.get('/health', async () => ({ ok: true }));
   await app.register(authRoutes, { config, db });
-  await app.register(baseRoutes, { db });
+  await app.register(baseRoutes, { db, now });
 
   return app;
 }

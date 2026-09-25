@@ -1,4 +1,6 @@
-export type ResourceType = 'gold' | 'food';
+export const RESOURCE_TYPES = ['gold', 'food'] as const;
+
+export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 export type Resources = Record<ResourceType, number>;
 

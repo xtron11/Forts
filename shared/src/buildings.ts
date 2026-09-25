@@ -1,7 +1,6 @@
 /**
- * Конфиг зданий — единственный источник игровых чисел по зданиям.
- * Пока только размер, лимит и цвет-заглушка; стоимость, время постройки и
- * характеристики появятся здесь же.
+ * Типы зданий и их неизменные свойства: размер и цвет-заглушка.
+ * Стоимость, время, лимиты и характеристики по уровням — в balance.ts.
  */
 
 export const BUILDING_TYPES = ['townhall', 'goldmine', 'farm', 'barracks', 'tower', 'wall'] as const;
@@ -12,14 +11,12 @@ export interface BuildingConfig {
   type: BuildingType;
   /** Сторона квадратного основания в клетках. */
   size: number;
-  /** Сколько таких зданий может быть на базе; без поля — без ограничения. */
-  maxCount?: number;
   /** Цвет-заглушка, 0xRRGGBB. */
   color: number;
 }
 
 export const BUILDINGS: Readonly<Record<BuildingType, BuildingConfig>> = {
-  townhall: { type: 'townhall', size: 3, maxCount: 1, color: 0xc0392b },
+  townhall: { type: 'townhall', size: 3, color: 0xc0392b },
   goldmine: { type: 'goldmine', size: 2, color: 0xf1c40f },
   farm: { type: 'farm', size: 2, color: 0x7cb342 },
   barracks: { type: 'barracks', size: 2, color: 0x8e44ad },

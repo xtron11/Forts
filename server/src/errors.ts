@@ -10,7 +10,16 @@ const STATUS: Record<ApiErrorCode, number> = {
   not_found: 404,
   out_of_bounds: 422,
   overlap: 422,
+  // Игровые правила: запрос корректен, но сейчас так нельзя.
   limit_reached: 422,
+  townhall_level_too_low: 422,
+  no_free_builder: 422,
+  not_enough_resources: 422,
+  under_construction: 422,
+  max_level: 422,
+  not_producer: 422,
+  nothing_to_collect: 422,
+  storage_full: 422,
   internal: 500,
 };
 

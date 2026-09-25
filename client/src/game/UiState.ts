@@ -1,38 +1,71 @@
 import Phaser from 'phaser';
 import type { BuildingType } from '@forts/shared';
+import type { TextKey } from '../i18n';
 import type { Palette } from './theme';
 
-/** Здание, которое тянут с панели на поле. */
+/** Здание, которое тянут из меню постройки на поле. */
 export interface BuildingDrag {
   type: BuildingType;
   pointerId: number;
 }
 
-/** Состояние, общее для сцен мира и интерфейса. */
+/** Что делает тап по полю: обычный выбор здания, постановка нового или перенос. */
+export type WorldMode = { kind: 'none' } | { kind: 'place'; type: BuildingType } | { kind: 'move'; id: number };
+
+/**
+ * Состояние интерфейса, общее для сцен мира и HUD. Событие 'change' —
+ * изменились mode, выбранное здание или открытость меню; 'toast' —
+ * показать короткое сообщение.
+ */
 export class UiState extends Phaser.Events.EventEmitter {
-  selected: BuildingType = 'goldmine';
+  mode: WorldMode = { kind: 'none' };
+  /** Здание, для которого открыта панель. */
+  selectedId: number | null = null;
+  menuOpen = false;
   drag: BuildingDrag | null = null;
-  /** Области экрана (в пикселях канваса), занятые интерфейсом, — туда не ставим здания. */
+  /** Области экрана (в пикселях канваса), занятые интерфейсом, — там касания не доходят до мира. */
   blockers: Phaser.Geom.Rectangle[] = [];
 
   constructor(public palette: Palette) {
     super();
   }
 
-  select(type: BuildingType): void {
-    if (type === this.selected) return;
-    this.selected = type;
-    this.emit('select', type);
+  setMode(mode: WorldMode): void {
+    this.mode = mode;
+    this.selectedId = null;
+    this.menuOpen = false;
+    this.emit('change');
   }
 
-  /** Палец/кнопка мыши зажаты на кнопке здания — дальше мир ведёт перетаскивание. */
+  select(id: number | null): void {
+    if (id === this.selectedId && this.mode.kind === 'none' && !this.menuOpen) return;
+    this.selectedId = id;
+    this.mode = { kind: 'none' };
+    this.menuOpen = false;
+    this.emit('change');
+  }
+
+  setMenuOpen(open: boolean): void {
+    if (open === this.menuOpen) return;
+    this.menuOpen = open;
+    if (open) {
+      this.selectedId = null;
+      this.mode = { kind: 'none' };
+    }
+    this.emit('change');
+  }
+
+  /** Палец/кнопка мыши зажаты на строке меню — дальше мир ведёт перетаскивание. */
   startDrag(type: BuildingType, pointerId: number): void {
-    this.select(type);
     this.drag = { type, pointerId };
   }
 
   endDrag(): void {
     this.drag = null;
+  }
+
+  toast(text: TextKey, params?: Record<string, string | number>): void {
+    this.emit('toast', text, params);
   }
 
   setPalette(palette: Palette): void {

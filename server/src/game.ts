@@ -1,0 +1,233 @@
+/**
+ * Игровые действия с базой игрока. Решения принимают чистые функции из
+ * shared (economy.ts), здесь — только чтение и запись в транзакции.
+ *
+ * Каждое действие блокирует строку игрока (SELECT ... FOR UPDATE), поэтому
+ * запросы одного игрока выполняются строго по очереди: второй из двух
+ * быстрых одинаковых запросов видит результат первого (здание уже
+ * улучшается, ресурсы уже собраны) и не списывает/не начисляет повторно.
+ */
+import {
+  accumulated,
+  checkBuild,
+  checkPlacement,
+  checkUpgrade,
+  collect,
+  newBuildingState,
+  settleBuilding,
+  startUpgrade,
+  subtractCost,
+  type ApiErrorCode,
+  type BaseSnapshot,
+  type BuildingType,
+  type PlacedBuilding,
+  type Resources,
+  type ResourceType,
+  type RuleCheck,
+} from '@forts/shared';
+import type pg from 'pg';
+import { inTransaction, type Db } from './db';
+
+interface PlayerRow {
+  id: number;
+  name: string;
+  language_code: string;
+  gold: number;
+  food: number;
+}
+
+interface BuildingRow {
+  id: number;
+  type: BuildingType;
+  x: number;
+  y: number;
+  level: number;
+  finish_at: Date | null;
+  collected_at: Date;
+  stored: number;
+}
+
+const PLAYER_COLUMNS = 'id, name, language_code, gold, food';
+const BUILDING_COLUMNS = 'id, type, x, y, level, finish_at, collected_at, stored';
+
+function toBuilding(row: BuildingRow): PlacedBuilding {
+  return {
+    id: row.id,
+    type: row.type,
+    x: row.x,
+    y: row.y,
+    level: row.level,
+    finishAt: row.finish_at?.getTime() ?? null,
+    collectedAt: row.collected_at.getTime(),
+    stored: row.stored,
+  };
+}
+
+export interface Failure {
+  error: ApiErrorCode;
+  message: string;
+}
+
+function fail(error: ApiErrorCode, message: string): Failure {
+  return { error, message };
+}
+
+export function isFailure(value: object): value is Failure {
+  return 'error' in value;
+}
+
+function ruleFailure(check: Extract<RuleCheck, { ok: false }>, what: string): Failure {
+  const details = [check.missing && `missing ${check.missing}`, check.requiredTownhall && `town hall ${check.requiredTownhall} required`]
+    .filter(Boolean)
+    .join(', ');
+  return fail(check.reason, `Cannot ${what}: ${check.reason}${details ? ` (${details})` : ''}`);
+}
+
+/** База игрока внутри транзакции: ресурсы и здания уже с завершёнными к now стройками. */
+interface BaseTx {
+  client: pg.PoolClient;
+  playerId: number;
+  now: number;
+  resources: Resources;
+  buildings: PlacedBuilding[];
+}
+
+async function saveBuilding(client: pg.PoolClient, b: PlacedBuilding): Promise<void> {
+  await client.query(
+    `UPDATE buildings SET x = $2, y = $3, level = $4, finish_at = $5, collected_at = $6, stored = $7 WHERE id = $1`,
+    [b.id, b.x, b.y, b.level, b.finishAt === null ? null : new Date(b.finishAt), new Date(b.collectedAt), b.stored],
+  );
+}
+
+async function saveResources(client: pg.PoolClient, playerId: number, r: Resources): Promise<void> {
+  await client.query('UPDATE players SET gold = $2, food = $3 WHERE id = $1', [playerId, r.gold, r.food]);
+}
+
+/**
+ * Выполняет действие над базой игрока в транзакции и возвращает его
+ * результат вместе со свежим состоянием базы. Перед действием завершает
+ * все стройки, у которых наступил finish_at, — так здания «достраиваются»
+ * без cron, при первом же запросе.
+ */
+async function runAction<T extends object>(
+  db: Db,
+  playerId: number,
+  now: number,
+  action: (tx: BaseTx) => Promise<T | Failure>,
+): Promise<(T & BaseSnapshot) | Failure> {
+  return inTransaction(db, async (client) => {
+    const player = await client.query<PlayerRow>(
+      `UPDATE players SET last_seen_at = now() WHERE id = $1 RETURNING ${PLAYER_COLUMNS}`,
+      [playerId],
+    );
+    const row = player.rows[0];
+    if (!row) return fail('unauthorized', 'Player not found');
+    // UPDATE уже заблокировал строку игрока до конца транзакции — это и есть очередь запросов.
+
+    const loaded = await client.query<BuildingRow>(`SELECT ${BUILDING_COLUMNS} FROM buildings WHERE player_id = $1 ORDER BY id`, [playerId]);
+    const buildings: PlacedBuilding[] = [];
+    for (const b of loaded.rows.map(toBuilding)) {
+      const settled = settleBuilding(b, now);
+      if (settled !== b) await saveBuilding(client, settled);
+      buildings.push(settled);
+    }
+
+    const tx: BaseTx = { client, playerId, now, resources: { gold: row.gold, food: row.food }, buildings };
+    const result = await action(tx);
+    if (isFailure(result)) return result;
+
+    const fresh = await client.query<PlayerRow>(`SELECT ${PLAYER_COLUMNS} FROM players WHERE id = $1`, [playerId]);
+    const p = fresh.rows[0]!;
+    const all = await client.query<BuildingRow>(`SELECT ${BUILDING_COLUMNS} FROM buildings WHERE player_id = $1 ORDER BY id`, [playerId]);
+    return {
+      ...result,
+      serverTime: now,
+      player: { id: p.id, name: p.name, languageCode: p.language_code, resources: { gold: p.gold, food: p.food } },
+      buildings: all.rows.map(toBuilding),
+    };
+  });
+}
+
+function findBuilding(tx: BaseTx, id: number): PlacedBuilding | Failure {
+  return tx.buildings.find((b) => b.id === id) ?? fail('not_found', `Building ${id} not found`);
+}
+
+export function loadBase(db: Db, playerId: number, now: number) {
+  return runAction(db, playerId, now, async () => ({}));
+}
+
+/** Ставит новое здание: место свободно, позволяет ратуша, есть строитель и ресурсы. */
+export function placeBuilding(db: Db, playerId: number, type: string, x: number, y: number, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    const place = checkPlacement(tx.buildings, type, x, y);
+    if (!place.ok) return fail(place.reason, `Cannot place ${type} at (${x}, ${y}): ${place.reason}`);
+    const rules = checkBuild(tx.resources, tx.buildings, type, tx.now);
+    if (!rules.ok) return ruleFailure(rules, `build ${type}`);
+
+    await saveResources(tx.client, tx.playerId, subtractCost(tx.resources, rules.level.cost));
+    const state = newBuildingState(type as BuildingType, tx.now);
+    const inserted = await tx.client.query<BuildingRow>(
+      `INSERT INTO buildings (player_id, type, x, y, level, finish_at, collected_at, stored)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${BUILDING_COLUMNS}`,
+      [
+        tx.playerId,
+        type,
+        x,
+        y,
+        state.level,
+        state.finishAt === null ? null : new Date(state.finishAt),
+        new Date(state.collectedAt),
+        state.stored,
+      ],
+    );
+    return { building: toBuilding(inserted.rows[0]!) };
+  });
+}
+
+/** Начинает улучшение здания до следующего уровня. */
+export function upgradeBuilding(db: Db, playerId: number, id: number, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    const building = findBuilding(tx, id);
+    if (isFailure(building)) return building;
+    const rules = checkUpgrade(tx.resources, tx.buildings, building, tx.now);
+    if (!rules.ok) return ruleFailure(rules, `upgrade ${building.type} #${id}`);
+
+    await saveResources(tx.client, tx.playerId, subtractCost(tx.resources, rules.level.cost));
+    await saveBuilding(tx.client, startUpgrade(building, tx.now));
+    return {};
+  });
+}
+
+/** Забирает накопленное из шахты/фермы, не больше свободного места в хранилище. */
+export function collectBuilding(db: Db, playerId: number, id: number, now: number) {
+  return runAction<{ collected: { resource: ResourceType; amount: number } }>(db, playerId, now, async (tx) => {
+    const building = findBuilding(tx, id);
+    if (isFailure(building)) return building;
+    const result = collect(building, tx.resources, tx.buildings, tx.now);
+    if (!result) return fail('not_producer', `${building.type} #${id} does not produce resources`);
+    if (result.amount === 0) {
+      return accumulated(building, tx.now) > 0
+        ? fail('storage_full', `Storage for ${result.resource} is full`)
+        : fail('nothing_to_collect', `Nothing to collect in #${id}`);
+    }
+
+    const resources = { ...tx.resources, [result.resource]: tx.resources[result.resource] + result.amount };
+    await saveResources(tx.client, tx.playerId, resources);
+    await saveBuilding(tx.client, result.building);
+    return { collected: { resource: result.resource, amount: result.amount } };
+  });
+}
+
+/** Переносит здание на новое место; бесплатно, в том числе во время стройки. */
+export function moveBuilding(db: Db, playerId: number, id: number, x: number, y: number, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    const building = findBuilding(tx, id);
+    if (isFailure(building)) return building;
+    const others = tx.buildings.filter((b) => b.id !== id);
+    const place = checkPlacement(others, building.type, x, y);
+    if (!place.ok) return fail(place.reason, `Cannot move #${id} to (${x}, ${y}): ${place.reason}`);
+
+    await saveBuilding(tx.client, { ...building, x, y });
+    return {};
+  });
+}

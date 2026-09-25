@@ -4,7 +4,8 @@
  */
 import type { PlacedBuilding, PlacementError } from './base';
 import type { BuildingType } from './buildings';
-import type { Resources } from './resources';
+import type { RuleError } from './economy';
+import type { Resources, ResourceType } from './resources';
 
 export const API_ROUTES = {
   authTelegram: '/auth/telegram',
@@ -12,7 +13,15 @@ export const API_ROUTES = {
   authDev: '/auth/dev',
   me: '/me',
   buildings: '/buildings',
+  upgradeBuilding: '/buildings/:id/upgrade',
+  collectBuilding: '/buildings/:id/collect',
+  moveBuilding: '/buildings/:id/move',
 } as const;
+
+/** Путь с подставленным id здания, например /buildings/7/upgrade. */
+export function buildingPath(route: string, id: number): string {
+  return route.replace(':id', String(id));
+}
 
 // ---------- Вход ----------
 
@@ -47,10 +56,18 @@ export interface PlayerDto {
   resources: Resources;
 }
 
-export interface MeResponse {
+/**
+ * Состояние базы на момент serverTime. Его возвращают все игровые запросы,
+ * клиент просто заменяет им своё.
+ */
+export interface BaseSnapshot {
+  /** Время сервера (мс Unix), на которое посчитано состояние; по нему клиент поправляет свои часы. */
+  serverTime: number;
   player: PlayerDto;
   buildings: PlacedBuilding[];
 }
+
+export type MeResponse = BaseSnapshot;
 
 export interface PlaceBuildingRequest {
   type: BuildingType;
@@ -58,9 +75,22 @@ export interface PlaceBuildingRequest {
   y: number;
 }
 
-export interface PlaceBuildingResponse {
+export interface PlaceBuildingResponse extends BaseSnapshot {
   building: PlacedBuilding;
 }
+
+export type UpgradeBuildingResponse = BaseSnapshot;
+
+export interface CollectResponse extends BaseSnapshot {
+  collected: { resource: ResourceType; amount: number };
+}
+
+export interface MoveBuildingRequest {
+  x: number;
+  y: number;
+}
+
+export type MoveBuildingResponse = BaseSnapshot;
 
 // ---------- Ошибки ----------
 
@@ -71,7 +101,11 @@ export type ApiErrorCode =
   | 'init_data_expired'
   | 'not_found'
   | 'internal'
-  | PlacementError;
+  | 'not_producer'
+  | 'nothing_to_collect'
+  | 'storage_full'
+  | PlacementError
+  | RuleError;
 
 export interface ApiErrorResponse {
   error: ApiErrorCode;

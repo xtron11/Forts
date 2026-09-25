@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import type { ApiClient } from '../api/ApiClient';
+import type { BaseSnapshot } from '@forts/shared';
 import type { Platform } from '../platform';
-import { setGameContext, type BaseState } from './context';
+import { BaseStore } from './BaseStore';
+import { setGameContext } from './context';
 import { getDpr } from './display';
 import { HudScene } from './scenes/HudScene';
 import { WorldScene } from './scenes/WorldScene';
@@ -13,9 +15,9 @@ import { UiState } from './UiState';
  * обратно через zoom — так графика и текст чёткие на ретина-экранах.
  * Поэтому Scale.NONE и ручной ресайз по размеру контейнера.
  */
-export function createGame(parent: HTMLElement, platform: Platform, api: ApiClient, base: BaseState): Phaser.Game {
+export function createGame(parent: HTMLElement, platform: Platform, api: ApiClient, snapshot: BaseSnapshot): Phaser.Game {
   const ui = new UiState(paletteFor(platform.getTheme()));
-  setGameContext({ platform, api, base, ui });
+  setGameContext({ platform, api, base: new BaseStore(api, snapshot), ui });
 
   const dpr = getDpr();
   const game = new Phaser.Game({
