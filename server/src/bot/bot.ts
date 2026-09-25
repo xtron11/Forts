@@ -66,14 +66,12 @@ export function createBot({ config, db, log, now = Date.now }: BotDeps): Bot {
       await ctx.reply(t(locale, 'bot.start', { name }), {
         reply_markup: new InlineKeyboard().webApp(t(locale, 'bot.play'), config.webappUrl),
       });
-      // Кнопка меню на языке игрока (общая, заданная при старте, — на английском).
-      await ctx.api
-        .setChatMenuButton({
-          chat_id: ctx.chat.id,
-          menu_button: { type: 'web_app', text: t(locale, 'bot.menuButton'), web_app: { url: config.webappUrl } },
-        })
-        .catch((err: unknown) => log.warn(`bot: setChatMenuButton failed: ${String(err)}`));
     }
+    // Своя кнопка меню у чата не нужна: общая всегда ведёт на текущий WEBAPP_URL.
+    // Сбрасываем на случай, если в чате осталась кнопка со старым адресом.
+    await ctx.api
+      .setChatMenuButton({ chat_id: ctx.chat.id, menu_button: { type: 'default' } })
+      .catch((err: unknown) => log.warn(`bot: setChatMenuButton failed: ${String(err)}`));
     if (config.nodeEnv === 'development') {
       await ctx.reply(`dev: open the game as this player — http://localhost:5173/?tgid=${user.telegramId}`);
     }
