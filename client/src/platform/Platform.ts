@@ -1,4 +1,4 @@
-import type { LoginCredentials } from '@forts/shared';
+import { START_PARAM_PATTERN, type LoginCredentials } from '@forts/shared';
 
 export interface PlayerInfo {
   id: string;
@@ -44,4 +44,14 @@ export interface Platform {
   getSafeAreaInsets(): SafeAreaInsets;
   /** Вызывается, когда площадка меняет видимую область без события resize. */
   onViewportChange(cb: () => void): void;
+  /** Умеет ли площадка спросить разрешение на сообщения от бота. */
+  canRequestWriteAccess(): boolean;
+  /** Спросить у игрока разрешение на сообщения; true — разрешил. */
+  requestWriteAccess(): Promise<boolean>;
+}
+
+/** Параметр запуска startapp из адреса (кнопки бота передают его так); только допустимый. */
+export function startParamFromUrl(): string | undefined {
+  const value = new URLSearchParams(window.location.search).get('startapp') ?? undefined;
+  return value && new RegExp(START_PARAM_PATTERN).test(value) ? value : undefined;
 }

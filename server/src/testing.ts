@@ -18,6 +18,8 @@ export const TEST_CONFIG: Config = {
   corsOrigins: ['http://localhost:5173'],
   host: '127.0.0.1',
   port: 0,
+  botMode: 'off',
+  notifyTestMode: false,
 };
 
 /** Создаёт тестовую базу, если её нет, и применяет миграции. undefined — Postgres недоступен. */

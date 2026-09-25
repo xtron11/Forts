@@ -16,6 +16,7 @@ import {
   checkBuild,
   checkUpgrade,
   collect,
+  fillTime,
   isCollectReady,
   newBuildingState,
   settleBuilding,
@@ -284,5 +285,52 @@ describe('collect', () => {
 
   it('у зданий без добычи — undefined', () => {
     assert.equal(collect(th, { gold: 0, food: 0 }, [th], T0 + HOUR), undefined);
+  });
+});
+
+describe('fillTime — когда шахта/ферма заполнится', () => {
+  it('ровно в момент, когда накопленное достигает вместимости', () => {
+    for (const type of ['goldmine', 'farm'] as const) {
+      for (let level = 1; level <= PRODUCERS[type].levels.length; level++) {
+        const b = ready(type, level, T0, 7);
+        const at = fillTime(b)!;
+        const cap = PRODUCERS[type].levels[level - 1]!.capacity;
+        assert.equal(accumulated(b, at), cap, `${type} ${level}`);
+        assert.ok(accumulated(b, at - 1) < cap, `${type} ${level}: на миллисекунду раньше ещё не полна`);
+      }
+    }
+  });
+
+  it('шахта 1 уровня с нуля: вместимость / добыча в час', () => {
+    assert.equal(fillTime(ready('goldmine')), T0 + Math.ceil((mine1.capacity * HOUR) / mine1.perHour));
+  });
+
+  it('частично собранная: считается от остатка', () => {
+    const half = ready('goldmine', 1, T0, mine1.capacity / 2);
+    assert.equal(fillTime(half), T0 + Math.ceil(((mine1.capacity / 2) * HOUR) / mine1.perHour));
+  });
+
+  it('уже полная — момент collectedAt', () => {
+    assert.equal(fillTime(ready('goldmine', 1, T0, mine1.capacity)), T0);
+  });
+
+  it('во время улучшения: добыча стоит до конца стройки, дальше — по новому уровню', () => {
+    const mine2 = PRODUCERS.goldmine.levels[1]!;
+    const finishAt = T0 + 10 * MIN;
+    const upgrading: BuildingState = { type: 'goldmine', level: 1, finishAt, collectedAt: T0, stored: 100 };
+    const expected = finishAt + Math.ceil(((mine2.capacity - 100) * HOUR) / mine2.perHour);
+    assert.equal(fillTime(upgrading), expected);
+    assert.equal(accumulated(upgrading, expected), mine2.capacity);
+  });
+
+  it('новое здание в постройке заполняется после её окончания', () => {
+    const building = { type: 'farm' as const, ...newBuildingState('farm', T0) };
+    const lvl1 = PRODUCERS.farm.levels[0]!;
+    assert.equal(fillTime(building), building.finishAt! + Math.ceil((lvl1.capacity * HOUR) / lvl1.perHour));
+  });
+
+  it('не добывающие здания — undefined', () => {
+    assert.equal(fillTime(ready('barracks')), undefined);
+    assert.equal(fillTime(ready('townhall')), undefined);
   });
 });

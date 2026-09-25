@@ -17,7 +17,7 @@ export interface TelegramInsets {
 
 export interface TelegramWebApp {
   initData: string;
-  initDataUnsafe: { user?: TelegramUser };
+  initDataUnsafe: { user?: TelegramUser; start_param?: string };
   version: string;
   colorScheme: 'light' | 'dark';
   themeParams: { bg_color?: string };
@@ -28,6 +28,8 @@ export interface TelegramWebApp {
   isVersionAtLeast(version: string): boolean;
   disableVerticalSwipes?(): void;
   onEvent(event: string, cb: () => void): void;
+  /** Bot API 6.9+. */
+  requestWriteAccess?(callback?: (granted: boolean) => void): void;
   HapticFeedback: {
     impactOccurred(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;
     notificationOccurred(type: 'error' | 'success' | 'warning'): void;

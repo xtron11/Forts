@@ -9,10 +9,12 @@ import {
   type PlaceBuildingRequest,
   type PlaceBuildingResponse,
   type UpgradeBuildingResponse,
+  type WriteAccessRequest,
+  type WriteAccessResponse,
 } from '@forts/shared';
 import type { Db } from '../db';
 import { sendError } from '../errors';
-import { collectBuilding, isFailure, loadBase, moveBuilding, placeBuilding, upgradeBuilding, type Failure } from '../game';
+import { collectBuilding, isFailure, loadBase, moveBuilding, placeBuilding, setWriteAccess, upgradeBuilding, type Failure } from '../game';
 
 // Существование типа и границы поля проверяет checkPlacement — так клиент
 // получает конкретный код ошибки, а не общий validation.
@@ -89,5 +91,15 @@ export async function baseRoutes(app: FastifyInstance, { db, now }: { db: Db; no
       const { x, y } = request.body;
       return send(reply, await moveBuilding(db, playerId(request.user.sub), Number(request.params.id), x, y, now()));
     },
+  );
+
+  app.post<{ Body: WriteAccessRequest; Reply: WriteAccessResponse | ApiErrorResponse }>(
+    API_ROUTES.writeAccess,
+    {
+      schema: {
+        body: { type: 'object', required: ['granted'], additionalProperties: false, properties: { granted: { type: 'boolean' } } },
+      },
+    },
+    async (request, reply) => send(reply, await setWriteAccess(db, playerId(request.user.sub), request.body.granted, now())),
   );
 }

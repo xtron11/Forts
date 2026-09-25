@@ -9,7 +9,7 @@
     "start": "node --enable-source-maps dist/index.js",
     "migrate": "tsx src/migrateCli.ts",
     "typecheck": "tsc --noEmit -p .",
-    "test": "tsx --test \"src/**/*.test.ts\""
+    "test": "tsx --test --test-concurrency=1 \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
@@ -17,6 +17,7 @@
     "@forts/shared": "*",
     "esbuild": "^0.28.2",
     "fastify": "^5.12.5",
+    "grammy": "^1.46.0",
     "pg": "^8.23.0"
   },
   "devDependencies": {

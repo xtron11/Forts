@@ -1,6 +1,8 @@
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { webhookCallback, type Bot } from 'grammy';
+import { WEBHOOK_PATH } from './bot/bot';
 import type { Config } from './config';
 import type { Db } from './db';
 import { sendError } from './errors';
@@ -20,9 +22,11 @@ export interface AppDeps {
   db: Db;
   /** Текущее время, мс; тесты подставляют свои часы. */
   now?: () => number;
+  /** Бот; в режиме webhook его обновления принимаются на WEBHOOK_PATH. */
+  bot?: Bot;
 }
 
-export async function buildApp({ config, db, now = Date.now }: AppDeps): Promise<FastifyInstance> {
+export async function buildApp({ config, db, now = Date.now, bot }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: config.nodeEnv === 'test' ? false : { level: config.nodeEnv === 'production' ? 'info' : 'debug' },
     // Без приведения типов: {"x": "3"} — ошибка валидации, а не 3.
@@ -46,8 +50,14 @@ export async function buildApp({ config, db, now = Date.now }: AppDeps): Promise
   app.setNotFoundHandler((request, reply) => sendError(reply, 'not_found', `Route ${request.method} ${request.url} not found`));
 
   app.get('/health', async () => ({ ok: true }));
-  await app.register(authRoutes, { config, db });
+  await app.register(authRoutes, { config, db, now });
   await app.register(baseRoutes, { db, now });
+
+  if (bot && config.botMode === 'webhook' && config.webhookSecret) {
+    // grammY сверяет X-Telegram-Bot-Api-Secret-Token и отвечает 401 при несовпадении.
+    const handle = webhookCallback(bot, 'fastify', { secretToken: config.webhookSecret, onTimeout: 'return', timeoutMilliseconds: 9000 });
+    app.post(WEBHOOK_PATH, { bodyLimit: 1024 * 1024 }, handle);
+  }
 
   return app;
 }

@@ -46,4 +46,8 @@ export const en: Dictionary = {
   'error.network': 'No connection to the server',
   'error.connect': "Couldn't connect to the server",
   'error.retry': 'Retry',
+  'notify.prompt': '🔔 Get a message when construction is done?',
+  'notify.yes': 'Yes',
+  'notify.later': 'Not now',
+  'notify.enabled': 'Notifications are on',
 };

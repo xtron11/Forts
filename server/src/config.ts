@@ -11,6 +11,19 @@ export interface Config {
   corsOrigins: string[];
   host: string;
   port: number;
+  /**
+   * Как бот получает обновления: webhook в production, long polling в
+   * development (без туннеля), в тестах бота нет.
+   */
+  botMode: 'webhook' | 'polling' | 'off';
+  /** Секрет заголовка X-Telegram-Bot-Api-Secret-Token; обязателен для webhook. */
+  webhookSecret?: string;
+  /** Публичный https-адрес сервера — на него ставится webhook. */
+  publicUrl?: string;
+  /** https-адрес мини-приложения для кнопок бота; без него кнопок нет. */
+  webappUrl?: string;
+  /** NOTIFY_TEST_MODE: короткие задержки уведомлений; работает только в development. */
+  notifyTestMode: boolean;
 }
 
 const ENV_FILE = fileURLToPath(new URL('../.env', import.meta.url));
@@ -59,6 +72,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push('PORT must be an integer 1..65535');
 
+  const httpsUrl = (name: string): string | undefined => {
+    const value = env[name]?.trim().replace(/\/+$/, '');
+    if (!value) return undefined;
+    if (!/^https:\/\/[^\s]+$/.test(value)) errors.push(`${name} must be an https:// URL`);
+    return value;
+  };
+  const publicUrl = httpsUrl('PUBLIC_URL');
+  const webappUrl = httpsUrl('WEBAPP_URL');
+  const webhookSecret = env.WEBHOOK_SECRET?.trim() || undefined;
+  if (webhookSecret && !/^[A-Za-z0-9_-]{16,256}$/.test(webhookSecret)) {
+    errors.push('WEBHOOK_SECRET must be 16..256 characters A-Z a-z 0-9 _ -');
+  }
+  if (nodeEnv === 'production') {
+    if (!publicUrl) errors.push('PUBLIC_URL is required in production (webhook address)');
+    if (!webappUrl) errors.push('WEBAPP_URL is required in production (mini app address)');
+    if (!webhookSecret) errors.push('WEBHOOK_SECRET is required in production');
+  }
+  const botMode = nodeEnv === 'production' ? 'webhook' : nodeEnv === 'development' ? 'polling' : 'off';
+  const testModeFlag = ['1', 'true', 'yes'].includes(env.NOTIFY_TEST_MODE?.trim().toLowerCase() ?? '');
+
   if (errors.length > 0) {
     throw new Error(`Invalid configuration (see server/.env.example):\n  - ${errors.join('\n  - ')}`);
   }
@@ -71,5 +104,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOrigins,
     host: env.HOST?.trim() || '0.0.0.0',
     port,
+    botMode,
+    webhookSecret,
+    publicUrl,
+    webappUrl,
+    // В production флаг игнорируется: настоящие игроки всегда получают обычные задержки.
+    notifyTestMode: nodeEnv === 'development' && testModeFlag,
   };
 }

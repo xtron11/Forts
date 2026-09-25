@@ -8,8 +8,8 @@
 - Весь код на TypeScript, монорепозиторий на npm workspaces.
 - client/ — игра: Vite + Phaser (последняя стабильная версия) + Telegram WebApp SDK.
   Деплоится на Vercel (Root Directory: client).
-- server/ — Node.js API (Fastify) + PostgreSQL, деплой на VPS. Бот на grammY
-  появится позже.
+- server/ — Node.js API (Fastify) + PostgreSQL + бот на grammY в том же
+  процессе (webhook в production, long polling локально), деплой на Railway.
 - shared/ — общий код клиента и сервера: типы, конфиги зданий/войск,
   формулы ресурсов, логика боя.
 

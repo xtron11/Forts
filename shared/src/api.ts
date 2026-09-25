@@ -16,6 +16,8 @@ export const API_ROUTES = {
   upgradeBuilding: '/buildings/:id/upgrade',
   collectBuilding: '/buildings/:id/collect',
   moveBuilding: '/buildings/:id/move',
+  /** Ответ игрока на предложение присылать уведомления. */
+  writeAccess: '/notifications/write-access',
 } as const;
 
 /** Путь с подставленным id здания, например /buildings/7/upgrade. */
@@ -25,17 +27,39 @@ export function buildingPath(route: string, id: number): string {
 
 // ---------- Вход ----------
 
-export interface AuthTelegramRequest {
+/** Необязательные сведения о входе — общие для всех площадок. */
+export interface LoginExtras {
+  /** Часовой пояс устройства (IANA, например "Europe/Moscow") — для тихих часов уведомлений. */
+  timezone?: string;
+  /**
+   * Параметр запуска (startapp): откуда пришёл игрок или по какому
+   * уведомлению вошёл (notif_<тип>). Подписанный start_param из initData важнее.
+   */
+  startParam?: string;
+}
+
+export interface AuthTelegramRequest extends LoginExtras {
   /** Строка Telegram.WebApp.initData как есть. */
   initData: string;
 }
 
-export interface AuthDevRequest {
+export interface AuthDevRequest extends LoginExtras {
   /** Номер тестового игрока (положительное целое). */
   devId: number;
   name: string;
   languageCode: string;
+  /**
+   * Войти игроком с настоящим Telegram id — чтобы в режиме разработки
+   * получать уведомления бота, открывая игру в браузере.
+   */
+  telegramId?: number;
 }
+
+/** Параметр запуска из кнопки уведомления: notif_build_done и т. п. */
+export const NOTIFICATION_START_PREFIX = 'notif_';
+
+/** Допустимый параметр запуска Telegram: до 64 символов A-Z a-z 0-9 _ -. */
+export const START_PARAM_PATTERN = '^[A-Za-z0-9_-]{1,64}$';
 
 /** Чем клиент подтверждает личность; выдаёт платформенный слой. */
 export type LoginCredentials = ({ kind: 'telegram' } & AuthTelegramRequest) | ({ kind: 'dev' } & AuthDevRequest);
@@ -54,6 +78,11 @@ export interface PlayerDto {
   name: string;
   languageCode: string;
   resources: Resources;
+  /**
+   * Бот пока не может писать игроку, и пора (снова) предложить
+   * уведомления — клиент показывает предложение после постройки.
+   */
+  askWriteAccess: boolean;
 }
 
 /**
@@ -91,6 +120,15 @@ export interface MoveBuildingRequest {
 }
 
 export type MoveBuildingResponse = BaseSnapshot;
+
+// ---------- Уведомления ----------
+
+export interface WriteAccessRequest {
+  /** Разрешил ли игрок боту писать ему. */
+  granted: boolean;
+}
+
+export type WriteAccessResponse = BaseSnapshot;
 
 // ---------- Ошибки ----------
 

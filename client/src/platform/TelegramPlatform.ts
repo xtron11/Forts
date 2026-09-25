@@ -1,5 +1,5 @@
 import type { LoginCredentials } from '@forts/shared';
-import type { HapticKind, Platform, PlayerInfo, SafeAreaInsets, ThemeInfo } from './Platform';
+import { startParamFromUrl, type HapticKind, type Platform, type PlayerInfo, type SafeAreaInsets, type ThemeInfo } from './Platform';
 import type { TelegramWebApp } from './telegram-types';
 
 export class TelegramPlatform implements Platform {
@@ -48,7 +48,8 @@ export class TelegramPlatform implements Platform {
   }
 
   getLoginCredentials(): LoginCredentials {
-    return { kind: 'telegram', initData: this.webApp.initData };
+    // Подписанный start_param сервер возьмёт из initData; из адреса — параметр кнопки бота.
+    return { kind: 'telegram', initData: this.webApp.initData, startParam: startParamFromUrl() };
   }
 
   getTheme(): ThemeInfo {
@@ -64,6 +65,17 @@ export class TelegramPlatform implements Platform {
     const content = this.webApp.contentSafeAreaInset;
     const sum = (side: keyof SafeAreaInsets) => (device?.[side] ?? 0) + (content?.[side] ?? 0);
     return { top: sum('top'), bottom: sum('bottom'), left: sum('left'), right: sum('right') };
+  }
+
+  canRequestWriteAccess(): boolean {
+    return this.webApp.isVersionAtLeast('6.9') && typeof this.webApp.requestWriteAccess === 'function';
+  }
+
+  requestWriteAccess(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this.canRequestWriteAccess()) return resolve(false);
+      this.webApp.requestWriteAccess!((granted) => resolve(granted));
+    });
   }
 
   onViewportChange(cb: () => void): void {

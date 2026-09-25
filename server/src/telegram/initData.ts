@@ -7,10 +7,12 @@ export interface TelegramInitUser {
   last_name?: string;
   username?: string;
   language_code?: string;
+  /** Пользователь разрешил боту писать ему. */
+  allows_write_to_pm?: boolean;
 }
 
 export type InitDataResult =
-  | { ok: true; user: TelegramInitUser; authDate: Date }
+  | { ok: true; user: TelegramInitUser; authDate: Date; /** Параметр startapp, если мини-приложение открыто по ссылке с ним. */ startParam?: string }
   | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' };
 
 export interface ValidateOptions {
@@ -68,7 +70,8 @@ export function validateInitData(initData: string, botToken: string, options: Va
   }
   if (!isTelegramUser(user)) return { ok: false, reason: 'malformed' };
 
-  return { ok: true, user, authDate: new Date(authDateSec * 1000) };
+  const startParam = params.get('start_param') ?? undefined;
+  return { ok: true, user, authDate: new Date(authDateSec * 1000), startParam };
 }
 
 function isTelegramUser(value: unknown): value is TelegramInitUser {

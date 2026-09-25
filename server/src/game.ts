@@ -21,47 +21,32 @@ import {
   type BaseSnapshot,
   type BuildingType,
   type PlacedBuilding,
+  type PlayerDto,
   type Resources,
   type ResourceType,
   type RuleCheck,
 } from '@forts/shared';
 import type pg from 'pg';
 import { inTransaction, type Db } from './db';
+import { trackEvent } from './events';
+import { planNotifications } from './notifications/plan';
+import { shouldAskWriteAccess } from './notifications/policy';
+import { botCanMessage, syncNotifications } from './notifications/store';
+import { BUILDING_COLUMNS, loadBuildings, toBuilding, type BuildingRow } from './rows';
 
 interface PlayerRow {
   id: number;
+  telegram_id: number;
   name: string;
   language_code: string;
   gold: number;
   food: number;
+  can_message: boolean;
+  notifications_off: string[];
+  write_access_asked_at: Date | null;
 }
 
-interface BuildingRow {
-  id: number;
-  type: BuildingType;
-  x: number;
-  y: number;
-  level: number;
-  finish_at: Date | null;
-  collected_at: Date;
-  stored: number;
-}
-
-const PLAYER_COLUMNS = 'id, name, language_code, gold, food';
-const BUILDING_COLUMNS = 'id, type, x, y, level, finish_at, collected_at, stored';
-
-function toBuilding(row: BuildingRow): PlacedBuilding {
-  return {
-    id: row.id,
-    type: row.type,
-    x: row.x,
-    y: row.y,
-    level: row.level,
-    finishAt: row.finish_at?.getTime() ?? null,
-    collectedAt: row.collected_at.getTime(),
-    stored: row.stored,
-  };
-}
+const PLAYER_COLUMNS = 'id, telegram_id, name, language_code, gold, food, can_message, notifications_off, write_access_asked_at';
 
 export interface Failure {
   error: ApiErrorCode;
@@ -103,11 +88,28 @@ async function saveResources(client: pg.PoolClient, playerId: number, r: Resourc
   await client.query('UPDATE players SET gold = $2, food = $3 WHERE id = $1', [playerId, r.gold, r.food]);
 }
 
+function toPlayerDto(p: PlayerRow, buildings: readonly PlacedBuilding[], now: number): PlayerDto {
+  return {
+    id: p.id,
+    name: p.name,
+    languageCode: p.language_code,
+    resources: { gold: p.gold, food: p.food },
+    askWriteAccess: shouldAskWriteAccess(
+      { canMessage: p.can_message, writeAccessAskedAt: p.write_access_asked_at?.getTime() ?? null },
+      buildings,
+      now,
+    ),
+  };
+}
+
 /**
  * Выполняет действие над базой игрока в транзакции и возвращает его
  * результат вместе со свежим состоянием базы. Перед действием завершает
  * все стройки, у которых наступил finish_at, — так здания «достраиваются»
  * без cron, при первом же запросе.
+ *
+ * Любой запрос — это «игрок в игре»: last_seen_at = now, и будущие
+ * уведомления пересчитываются по новому состоянию базы.
  */
 async function runAction<T extends object>(
   db: Db,
@@ -117,16 +119,15 @@ async function runAction<T extends object>(
 ): Promise<(T & BaseSnapshot) | Failure> {
   return inTransaction(db, async (client) => {
     const player = await client.query<PlayerRow>(
-      `UPDATE players SET last_seen_at = now() WHERE id = $1 RETURNING ${PLAYER_COLUMNS}`,
-      [playerId],
+      `UPDATE players SET last_seen_at = $2 WHERE id = $1 RETURNING ${PLAYER_COLUMNS}`,
+      [playerId, new Date(now)],
     );
     const row = player.rows[0];
     if (!row) return fail('unauthorized', 'Player not found');
     // UPDATE уже заблокировал строку игрока до конца транзакции — это и есть очередь запросов.
 
-    const loaded = await client.query<BuildingRow>(`SELECT ${BUILDING_COLUMNS} FROM buildings WHERE player_id = $1 ORDER BY id`, [playerId]);
     const buildings: PlacedBuilding[] = [];
-    for (const b of loaded.rows.map(toBuilding)) {
+    for (const b of await loadBuildings(client, playerId)) {
       const settled = settleBuilding(b, now);
       if (settled !== b) await saveBuilding(client, settled);
       buildings.push(settled);
@@ -134,17 +135,16 @@ async function runAction<T extends object>(
 
     const tx: BaseTx = { client, playerId, now, resources: { gold: row.gold, food: row.food }, buildings };
     const result = await action(tx);
-    if (isFailure(result)) return result;
 
     const fresh = await client.query<PlayerRow>(`SELECT ${PLAYER_COLUMNS} FROM players WHERE id = $1`, [playerId]);
     const p = fresh.rows[0]!;
-    const all = await client.query<BuildingRow>(`SELECT ${BUILDING_COLUMNS} FROM buildings WHERE player_id = $1 ORDER BY id`, [playerId]);
-    return {
-      ...result,
-      serverTime: now,
-      player: { id: p.id, name: p.name, languageCode: p.language_code, resources: { gold: p.gold, food: p.food } },
-      buildings: all.rows.map(toBuilding),
-    };
+    const all = await loadBuildings(client, playerId);
+    // Игрок видит базу сейчас: уведомлять можно только о том, что случится позже.
+    const planned = planNotifications({ buildings: all, since: now, canMessage: botCanMessage(p), disabled: p.notifications_off });
+    await syncNotifications(client, playerId, planned, now);
+
+    if (isFailure(result)) return result;
+    return { ...result, serverTime: now, player: toPlayerDto(p, all, now), buildings: all };
   });
 }
 
@@ -215,6 +215,24 @@ export function collectBuilding(db: Db, playerId: number, id: number, now: numbe
     await saveResources(tx.client, tx.playerId, resources);
     await saveBuilding(tx.client, result.building);
     return { collected: { resource: result.resource, amount: result.amount } };
+  });
+}
+
+/**
+ * Ответ игрока на предложение уведомлений. Разрешил — бот может писать
+ * (и сразу планируются уведомления); отказ запоминается, чтобы не
+ * спрашивать чаще раза в неделю.
+ */
+export function setWriteAccess(db: Db, playerId: number, granted: boolean, now: number) {
+  return runAction(db, playerId, now, async (tx) => {
+    await tx.client.query(
+      granted
+        ? 'UPDATE players SET can_message = true, allows_write_to_pm = true, bot_blocked_at = NULL, write_access_asked_at = $2 WHERE id = $1'
+        : 'UPDATE players SET write_access_asked_at = $2 WHERE id = $1',
+      [tx.playerId, new Date(tx.now)],
+    );
+    await trackEvent(tx.client, tx.playerId, 'write_access', { granted }, tx.now);
+    return {};
   });
 }
 

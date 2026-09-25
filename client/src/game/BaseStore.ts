@@ -15,6 +15,11 @@ import type { ApiClient } from '../api/ApiClient';
 /** Запас после finishAt перед запросом к серверу — на неточность оценки его часов. */
 const REFRESH_MARGIN_MS = 300;
 const RETRY_MS = 5000;
+/**
+ * Пока игра на экране, база обновляется хотя бы раз в минуту: сервер
+ * видит, что игрок в игре, и не шлёт уведомлений о том, что тот и так видит.
+ */
+const HEARTBEAT_MS = 60_000;
 
 /**
  * База игрока в том виде, в каком её подтвердил сервер, плюс оценка
@@ -43,6 +48,9 @@ export class BaseStore extends Phaser.Events.EventEmitter {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') void this.refresh();
     });
+    setInterval(() => {
+      if (document.visibilityState === 'visible') void this.refresh();
+    }, HEARTBEAT_MS);
   }
 
   /** Оценка текущего времени сервера, мс. */
@@ -111,6 +119,10 @@ export class BaseStore extends Phaser.Events.EventEmitter {
 
   move(id: number, x: number, y: number) {
     return this.run(`move:${id}`, () => this.api.moveBuilding(id, { x, y }));
+  }
+
+  answerWriteAccess(granted: boolean) {
+    return this.run('writeAccess', () => this.api.reportWriteAccess(granted));
   }
 
   private async run<T extends BaseSnapshot>(key: string, request: () => Promise<T>): Promise<T | undefined> {

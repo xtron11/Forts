@@ -209,3 +209,18 @@ export function collect<T extends BuildingState>(
   const collectedAt = b.finishAt === null ? now : b.collectedAt;
   return { building: { ...b, stored: available - amount, collectedAt }, resource: prod.resource, amount };
 }
+
+/**
+ * Когда шахта/ферма заполнится до вместимости (мс), если её не трогать:
+ * идущая стройка сначала завершится, затем добыча пойдёт по новому уровню.
+ * Уже полная — момент, с которого она полная (не позже collectedAt).
+ * undefined — здание ничего не добывает.
+ */
+export function fillTime(building: BuildingState): number | undefined {
+  const b = building.finishAt === null ? building : settleBuilding(building, building.finishAt);
+  const prod = producerLevel(b.type, b.level);
+  if (!prod || prod.perHour <= 0) return undefined;
+  if (b.stored >= prod.capacity) return b.collectedAt;
+  // accumulated() округляет вниз, поэтому ищем первый момент, когда stored + добыча ≥ вместимости.
+  return b.collectedAt + Math.ceil(((prod.capacity - b.stored) * HOUR_MS) / prod.perHour);
+}

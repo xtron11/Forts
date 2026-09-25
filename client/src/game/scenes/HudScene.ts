@@ -114,6 +114,11 @@ export class HudScene extends Phaser.Scene {
     else panel = this.buildBottomBar(left, bottom, w, s);
     this.bottomTop = panel.y;
     this.ctx.ui.blockers = [top, panel];
+    if (ui.notifyPrompt) {
+      const prompt = this.buildNotifyPrompt(left, panel.y - pad, w, s);
+      this.ctx.ui.blockers.push(prompt);
+      this.bottomTop = prompt.y;
+    }
   }
 
   // ---------- Примитивы ----------
@@ -492,6 +497,47 @@ export class HudScene extends Phaser.Scene {
       const id = mode.kind === 'move' ? mode.id : null;
       ui.setMode({ kind: 'none' });
       if (id !== null) ui.select(id);
+    });
+
+    return new Phaser.Geom.Rectangle(x, y, w, h);
+  }
+
+  // ---------- Предложение уведомлений ----------
+
+  private buildNotifyPrompt(x: number, bottom: number, w: number, s: number): Phaser.Geom.Rectangle {
+    const { palette } = this.ctx.ui;
+    const { ui, base, platform } = this.ctx;
+    const padX = 16 * s;
+    const text = this.text(x + padX, 0, t('notify.prompt'), 15 * s, palette.hudText, true).setWordWrapWidth(w - 2 * padX);
+    const btnH = 44 * s;
+    const h = 14 * s + text.height + 12 * s + btnH + 14 * s;
+    const y = bottom - h;
+    this.panel(x, y, w, h, s, undefined, palette.accent);
+    text.setY(y + 14 * s).setDepth(1);
+
+    const answer = (granted: boolean) => {
+      base.answerWriteAccess(granted).catch((err: unknown) => console.warn('Write access answer failed', err));
+      if (granted) ui.toast('notify.enabled');
+    };
+    const gap = 8 * s;
+    const by = y + h - 14 * s - btnH;
+    const bw = (w - 2 * padX - gap) / 2;
+    const nx = x + padX;
+    this.panel(nx, by, bw, btnH, s, palette.hudBg, palette.hudMuted);
+    this.text(nx + bw / 2, by + btnH / 2, t('notify.later'), 15 * s, palette.hudText, true).setOrigin(0.5);
+    this.tapZone(nx, by, bw, btnH, () => {
+      platform.haptic('selection');
+      ui.closeNotifyPrompt();
+      answer(false);
+    });
+    const yx = nx + bw + gap;
+    this.panel(yx, by, bw, btnH, s, palette.accent);
+    this.text(yx + bw / 2, by + btnH / 2, t('notify.yes'), 15 * s, 0xffffff, true).setOrigin(0.5);
+    this.tapZone(yx, by, bw, btnH, () => {
+      platform.haptic('medium');
+      ui.closeNotifyPrompt();
+      // Системный запрос Telegram; его ответ и есть решение игрока.
+      void platform.requestWriteAccess().then(answer);
     });
 
     return new Phaser.Geom.Rectangle(x, y, w, h);

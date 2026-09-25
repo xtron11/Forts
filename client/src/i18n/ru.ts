@@ -44,4 +44,8 @@ export const ru = {
   'error.network': 'Нет связи с сервером',
   'error.connect': 'Не удалось подключиться к серверу',
   'error.retry': 'Повторить',
+  'notify.prompt': '🔔 Присылать уведомления, когда постройка готова?',
+  'notify.yes': 'Да',
+  'notify.later': 'Не сейчас',
+  'notify.enabled': 'Уведомления включены',
 } as const;

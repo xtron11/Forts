@@ -23,6 +23,10 @@ export class UiState extends Phaser.Events.EventEmitter {
   selectedId: number | null = null;
   menuOpen = false;
   drag: BuildingDrag | null = null;
+  /** Показано предложение присылать уведомления. */
+  notifyPrompt = false;
+  /** Предложение уже показывали в этой сессии — второй раз не показываем. */
+  private notifyPromptShown = false;
   /** Области экрана (в пикселях канваса), занятые интерфейсом, — там касания не доходят до мира. */
   blockers: Phaser.Geom.Rectangle[] = [];
 
@@ -62,6 +66,20 @@ export class UiState extends Phaser.Events.EventEmitter {
 
   endDrag(): void {
     this.drag = null;
+  }
+
+  /** Предложить уведомления (один раз за сессию). */
+  offerNotifications(): void {
+    if (this.notifyPromptShown) return;
+    this.notifyPromptShown = true;
+    this.notifyPrompt = true;
+    this.emit('change');
+  }
+
+  closeNotifyPrompt(): void {
+    if (!this.notifyPrompt) return;
+    this.notifyPrompt = false;
+    this.emit('change');
   }
 
   toast(text: TextKey, params?: Record<string, string | number>): void {

@@ -12,6 +12,7 @@ import {
   type PlaceBuildingRequest,
   type PlaceBuildingResponse,
   type UpgradeBuildingResponse,
+  type WriteAccessResponse,
 } from '@forts/shared';
 
 const TIMEOUT_MS = 10_000;
@@ -45,7 +46,9 @@ export class ApiClient {
   async login(credentials: LoginCredentials): Promise<void> {
     const { kind, ...body } = credentials;
     const route = kind === 'telegram' ? API_ROUTES.authTelegram : API_ROUTES.authDev;
-    const res = await this.request<AuthResponse>('POST', route, body);
+    // Часовой пояс — для тихих часов уведомлений.
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+    const res = await this.request<AuthResponse>('POST', route, { ...body, timezone });
     this.token = res.token;
   }
 
@@ -67,6 +70,11 @@ export class ApiClient {
 
   moveBuilding(id: number, body: MoveBuildingRequest): Promise<MoveBuildingResponse> {
     return this.request('POST', buildingPath(API_ROUTES.moveBuilding, id), body);
+  }
+
+  /** Ответ на предложение уведомлений. */
+  reportWriteAccess(granted: boolean): Promise<WriteAccessResponse> {
+    return this.request('POST', API_ROUTES.writeAccess, { granted });
   }
 
   /** Оценка текущего времени сервера, мс. */

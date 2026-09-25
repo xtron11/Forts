@@ -333,6 +333,8 @@ export class WorldScene extends Phaser.Scene {
     try {
       const res = await base.place(type, x, y);
       if (!res) return;
+      // Бот пока не может писать — после постройки предложить уведомления о её готовности.
+      if (res.player.askWriteAccess && platform.canRequestWriteAccess()) ui.offerNotifications();
       // Мгновенные постройки (стены) удобно ставить подряд — режим остаётся.
       if (rules.level.buildSeconds > 0 && ui.mode.kind === 'place') ui.setMode({ kind: 'none' });
     } catch (err) {
