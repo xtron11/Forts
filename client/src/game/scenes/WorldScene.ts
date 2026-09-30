@@ -16,7 +16,10 @@ import { ApiError } from '../../api/ApiClient';
 import { t } from '../../i18n';
 import { buildingOutline, buildingRoofCenter, drawBuilding, pointInPolygon, polygon } from '../buildingView';
 import { getGameContext, type GameContext } from '../context';
-import { sortByDepth } from '../depthSort';
+import { BuilderCrew } from '../builder/BuilderCrew';
+import { BuilderAnimations, preloadBuilder } from '../builder/builderAnims';
+import { createBuilderView, type BuilderView } from '../builder/BuilderView';
+import { buildingBox, sortByDepth, type DepthBox } from '../depthSort';
 import { getDpr } from '../display';
 import { formatCountdown, formatNumber } from '../format';
 import { cellToWorld, footprintCorners, TILE_H, TILE_W, worldToCell, type Point } from '../iso';
@@ -66,6 +69,9 @@ export class WorldScene extends Phaser.Scene {
   /** Рамка выбранного здания на земле. */
   private selection!: Phaser.GameObjects.Graphics;
   private views = new Map<number, BuildingView>();
+  /** Строители — только картинка: куда идти, решают данные сервера. */
+  private crew = new BuilderCrew();
+  private builderViews: BuilderView[] = [];
   /** Здания, отправленные на сервер и ещё не подтверждённые. */
   private pending: BuildingPlacement[] = [];
   private synced = false;
@@ -79,9 +85,15 @@ export class WorldScene extends Phaser.Scene {
     super('world');
   }
 
+  preload(): void {
+    preloadBuilder(this);
+  }
+
   create(): void {
     this.ctx = getGameContext();
     const { ui, base } = this.ctx;
+    const builderAnims = BuilderAnimations.create(this);
+    this.builderViews = this.crew.builders.map(() => createBuilderView(this, builderAnims));
 
     this.grid = this.add.graphics().setDepth(-1);
     this.selection = this.add.graphics().setDepth(0);
@@ -121,8 +133,11 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
-  /** Каждый кадр: таймеры строек, значки сбора, размер надписей под зум. */
-  update(): void {
+  /** Каждый кадр: строители, таймеры строек, значки сбора, размер надписей под зум. */
+  update(time: number, delta: number): void {
+    if (this.crew.update(delta)) this.updateDepths();
+    this.crew.builders.forEach((b, i) => this.builderViews[i]!.update(b, time));
+
     const now = this.ctx.base.now();
     const scale = getDpr() / this.cameras.main.zoom;
     for (const view of this.views.values()) {
@@ -193,6 +208,7 @@ export class WorldScene extends Phaser.Scene {
     const known = new Set(this.views.keys());
     for (const view of this.views.values()) this.destroyView(view);
     this.views.clear();
+    this.crew.sync(this.ctx.base.buildings);
     for (const b of this.ctx.base.buildings) {
       const view = this.addView(b);
       if (this.synced && !known.has(b.id)) {
@@ -242,8 +258,15 @@ export class WorldScene extends Phaser.Scene {
     view.icon?.destroy();
   }
 
+  /** Здания и строители в одном порядке: строитель — квадрат клетки под ногами. */
   private updateDepths(): void {
-    sortByDepth(this.ctx.base.buildings).forEach((b, i) => this.views.get(b.id)?.body.setDepth(i + 1));
+    const items: { box: DepthBox; obj: Phaser.GameObjects.Components.Depth }[] = [];
+    for (const b of this.ctx.base.buildings) {
+      const view = this.views.get(b.id);
+      if (view) items.push({ box: buildingBox(b), obj: view.body });
+    }
+    this.crew.builders.forEach((b, i) => items.push({ box: b.depthBox(), obj: this.builderViews[i]!.obj }));
+    sortByDepth(items, (item) => item.box).forEach((item, i) => item.obj.setDepth(i + 1));
   }
 
   private label(x: number, y: number, text: string, size: number, color: string): Phaser.GameObjects.Text {
@@ -276,7 +299,7 @@ export class WorldScene extends Phaser.Scene {
       const cy = pos.y - ICON_LIFT * getDpr();
       if (Phaser.Math.Distance.Between(screen.x, screen.y, pos.x, cy) <= iconR) return { id: view.building.id, icon: true };
     }
-    const ordered = sortByDepth(this.ctx.base.buildings).reverse();
+    const ordered = sortByDepth(this.ctx.base.buildings, buildingBox).reverse();
     for (const b of ordered) {
       if (pointInPolygon(world, buildingOutline(b.type, b.x, b.y))) return { id: b.id, icon: false };
     }

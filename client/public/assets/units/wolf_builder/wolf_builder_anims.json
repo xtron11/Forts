@@ -1,0 +1,55 @@
+{
+  "character": "wolf_builder",
+  "atlas": "wolf_builder.json",
+  "frameSize": 128,
+  "fps": 12,
+  "anchor": {
+    "x": 0.5,
+    "y": 0.88
+  },
+  "frameName": "{anim}/{dir}/{frame:02d}",
+  "animations": {
+    "idle": {
+      "frames": 34,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "walk": {
+      "frames": 12,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "work": {
+      "frames": 36,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    }
+  }
+}
