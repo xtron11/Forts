@@ -28,6 +28,7 @@ export const ru = {
   'building.goldmine': 'Шахта',
   'building.farm': 'Ферма',
   'building.barracks': 'Казарма',
+  'building.camp': 'Лагерь',
   'building.tower': 'Башня',
   'building.wall': 'Стена',
 

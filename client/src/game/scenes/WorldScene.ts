@@ -17,6 +17,9 @@ import { t } from '../../i18n';
 import { buildingOutline, buildingRoofCenter, drawBuilding, pointInPolygon, polygon } from '../buildingView';
 import { getGameContext, type GameContext } from '../context';
 import { BuilderCrew } from '../builder/BuilderCrew';
+import { Camp, type CampUnit } from '../camp/Camp';
+import { preloadTroopArt, walkGait } from '../units/art';
+import { createUnitView, isOnCamera, type UnitView } from '../units/UnitView';
 import { BuilderAnimations, preloadBuilder } from '../builder/builderAnims';
 import { createBuilderView, type BuilderView } from '../builder/BuilderView';
 import { buildingBox, sortByDepth, type DepthBox } from '../depthSort';
@@ -37,6 +40,8 @@ const FONT = 'system-ui, -apple-system, Roboto, sans-serif';
 /** Радиус значка сбора и зоны тапа по нему, CSS-пиксели. */
 const ICON_RADIUS = 12;
 const ICON_LIFT = 26;
+/** Лагерь — плоская площадка: всегда под юнитами и зданиями, но над сеткой. */
+const CAMP_DEPTH = -0.5;
 
 interface Gesture {
   startX: number;
@@ -72,6 +77,11 @@ export class WorldScene extends Phaser.Scene {
   /** Строители — только картинка: куда идти, решают данные сервера. */
   private crew = new BuilderCrew();
   private builderViews: BuilderView[] = [];
+  /** Войска в лагере — тоже только картинка: сколько и каких, говорит сервер. */
+  private camp = new Camp((troop) => walkGait(this, troop).speed);
+  private campViews = new Map<number, UnitView>();
+  /** «×12» над юнитом лагеря: сколько таких войск в армии. */
+  private campLabels = new Map<number, Phaser.GameObjects.Text>();
   /** Здания, отправленные на сервер и ещё не подтверждённые. */
   private pending: BuildingPlacement[] = [];
   private synced = false;
@@ -87,6 +97,7 @@ export class WorldScene extends Phaser.Scene {
 
   preload(): void {
     preloadBuilder(this);
+    preloadTroopArt(this);
   }
 
   create(): void {
@@ -133,9 +144,11 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
-  /** Каждый кадр: строители, таймеры строек, значки сбора, размер надписей под зум. */
+  /** Каждый кадр: строители, войска лагеря, таймеры строек, значки сбора, размер надписей под зум. */
   update(time: number, delta: number): void {
-    if (this.crew.update(delta)) this.updateDepths();
+    const builderMoved = this.crew.update(delta);
+    const campMoved = this.updateCamp(delta);
+    if (builderMoved || campMoved) this.updateDepths();
     this.crew.builders.forEach((b, i) => this.builderViews[i]!.update(b, time));
 
     const now = this.ctx.base.now();
@@ -201,6 +214,68 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  // ---------- Лагерь ----------
+
+  /** Юниты за экраном стоят: ни анимации, ни таймеров. true — кто-то сдвинулся. */
+  private updateCamp(delta: number): boolean {
+    const cam = this.cameras.main;
+    const onScreen = new Set<number>();
+    for (const u of this.camp.units) {
+      const p = cellToWorld(u.col, u.row);
+      if (isOnCamera(cam, p.x, p.y, TILE_W)) onScreen.add(u.id);
+    }
+    const moved = this.camp.update(delta, (u) => onScreen.has(u.id));
+    const scale = getDpr() / cam.zoom;
+    for (const u of this.camp.units) {
+      const view = this.campViews.get(u.id)!;
+      const label = this.campLabels.get(u.id)!;
+      const visible = onScreen.has(u.id);
+      view.setPaused(!visible);
+      label.setVisible(visible);
+      if (!visible) continue;
+      this.playCampUnit(view, u);
+      const p = cellToWorld(u.col, u.row);
+      view.setPosition(p.x, p.y);
+      label.setPosition(p.x, p.y - view.height - 2).setScale(scale);
+    }
+    return moved;
+  }
+
+  /** Стоит — idle, идёт — walk (или замедленный run, если walk в атласе нет). */
+  private playCampUnit(view: UnitView, u: CampUnit): void {
+    if (u.anim === 'idle') {
+      view.play('idle', u.dir);
+      return;
+    }
+    const gait = walkGait(this, u.troop);
+    view.play(gait.anim, u.dir, { timeScale: gait.timeScale });
+  }
+
+  /** Виды для новых юнитов лагеря, лишние — убрать. */
+  private syncCamp(): void {
+    const { buildings, army } = this.ctx.base;
+    this.camp.sync(buildings, army);
+    const alive = new Set(this.camp.units.map((u) => u.id));
+    for (const [id, view] of this.campViews) {
+      if (alive.has(id)) continue;
+      view.destroy();
+      this.campViews.delete(id);
+      this.campLabels.get(id)?.destroy();
+      this.campLabels.delete(id);
+    }
+    for (const u of this.camp.units) {
+      if (!this.campViews.has(u.id)) {
+        const view = createUnitView(this, u.troop);
+        const p = cellToWorld(u.col, u.row);
+        view.setPosition(p.x, p.y);
+        this.playCampUnit(view, u);
+        this.campViews.set(u.id, view);
+        this.campLabels.set(u.id, this.label(p.x, p.y, '', 12, '#ffffff').setOrigin(0.5, 1).setStroke('#000000', 3).setDepth(OVERLAY_DEPTH));
+      }
+      this.campLabels.get(u.id)!.setText(`×${this.camp.counts.get(u.troop) ?? 0}`);
+    }
+  }
+
   // ---------- Здания ----------
 
   /** Пересоздаёт здания по состоянию из стора; новые появляются с анимацией. */
@@ -209,6 +284,7 @@ export class WorldScene extends Phaser.Scene {
     for (const view of this.views.values()) this.destroyView(view);
     this.views.clear();
     this.crew.sync(this.ctx.base.buildings);
+    this.syncCamp();
     for (const b of this.ctx.base.buildings) {
       const view = this.addView(b);
       if (this.synced && !known.has(b.id)) {
@@ -258,14 +334,17 @@ export class WorldScene extends Phaser.Scene {
     view.icon?.destroy();
   }
 
-  /** Здания и строители в одном порядке: строитель — квадрат клетки под ногами. */
+  /** Здания, строители и войска в одном порядке: юнит — квадрат клетки под ногами. */
   private updateDepths(): void {
-    const items: { box: DepthBox; obj: Phaser.GameObjects.Components.Depth }[] = [];
+    const items: { box: DepthBox; obj: { setDepth(depth: number): unknown } }[] = [];
     for (const b of this.ctx.base.buildings) {
       const view = this.views.get(b.id);
-      if (view) items.push({ box: buildingBox(b), obj: view.body });
+      if (!view) continue;
+      if (b.type === 'camp') view.body.setDepth(CAMP_DEPTH);
+      else items.push({ box: buildingBox(b), obj: view.body });
     }
     this.crew.builders.forEach((b, i) => items.push({ box: b.depthBox(), obj: this.builderViews[i]!.obj }));
+    for (const u of this.camp.units) items.push({ box: u.depthBox(), obj: this.campViews.get(u.id)! });
     sortByDepth(items, (item) => item.box).forEach((item, i) => item.obj.setDepth(i + 1));
   }
 

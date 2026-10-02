@@ -227,6 +227,8 @@ export interface BattleReport {
   gained: Resources;
   /** Потраченные войска. */
   troopsUsed: TroopCount[];
+  /** Высаженные и дожившие до конца боя (входят в troopsUsed). */
+  troopsSurvived: TroopCount[];
   endTick: number;
   /** Хэш итогового состояния — клиент может сверить со своим. */
   hash: number;

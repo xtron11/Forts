@@ -10,16 +10,17 @@ import {
   type BattleEvent,
   type BattleState,
   type BattleUnitState,
-  type TroopType,
 } from '@forts/shared';
 import { buildingRoofCenter, drawBuilding, polygon } from '../buildingView';
+import { directionOf, type Direction } from '../builder/grid';
 import { getGameContext, type GameContext } from '../context';
 import { getDpr } from '../display';
 import { cellToWorld, footprintCorners, TILE_H, TILE_W, worldToCell, type Point } from '../iso';
 import { shade } from '../theme';
 import type { BattleController, DeployRejection } from './BattleController';
 import { BATTLE_BOTTOM_BAR, BATTLE_PAD, BATTLE_TOP_BAR } from './layout';
-import { drawTroop } from './troopView';
+import { naturalRunSpeed } from '../units/art';
+import { createUnitView, isOnCamera, type UnitView } from '../units/UnitView';
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 /** Не больше стольких тиков за кадр — после долгой паузы бой не «проматывается». */
@@ -27,9 +28,14 @@ const MAX_STEPS_PER_FRAME = 5;
 /** Зажатый палец высаживает юнит раз в столько тиков. */
 const HOLD_EVERY_TICKS = 2;
 const TOP_DEPTH = 1_000_000;
-const UNIT_SIZE: Readonly<Record<TroopType, number>> = { warrior: 11, archer: 11, ram: 14 };
-/** Юнит на экране не мельче стольких CSS-пикселей, как бы ни было уменьшено поле. */
-const MIN_UNIT_CSS = 10;
+const FONT = 'system-ui, -apple-system, Roboto, sans-serif';
+/** Полоски и вспышки увеличиваются так, чтобы предмет размера EFFECT_SIZE был не мельче MIN_EFFECT_CSS CSS-пикселей. */
+const EFFECT_SIZE = 11;
+const MIN_EFFECT_CSS = 10;
+/** Юнит на экране не ниже стольких CSS-пикселей, как бы ни было уменьшено поле. */
+const MIN_UNIT_CSS = 14;
+/** Доля цикла attack, на которой виден удар (оружие касается цели). */
+const STRIKE_AT = 0.5;
 /** Насколько можно приблизить поле относительно «всё поле на экране». */
 const MAX_ZOOM_FACTOR = 3;
 /** Шаг визуального разброса толпы, единицы длины боя (клетка = TILE). */
@@ -41,9 +47,11 @@ interface BuildingView {
   destroyed: boolean;
 }
 
-interface UnitView {
-  g: Phaser.GameObjects.Graphics;
-  shadow: Phaser.GameObjects.Ellipse;
+interface BattleUnit {
+  view: UnitView;
+  /** Что играет сейчас: idle, run или attack. */
+  anim: string;
+  dir: Direction;
   dying: boolean;
 }
 
@@ -61,7 +69,7 @@ export class BattleScene extends Phaser.Scene {
   private bars!: Phaser.GameObjects.Graphics;
   private shownBase: BattleBase | null = null;
   private buildings = new Map<number, BuildingView>();
-  private units = new Map<number, UnitView>();
+  private units = new Map<number, BattleUnit>();
   /** Положение юнитов до последнего тика — для интерполяции. */
   private prev = new Map<number, { x: number; y: number }>();
   private acc = 0;
@@ -134,7 +142,7 @@ export class BattleScene extends Phaser.Scene {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.acc = Math.min(this.acc, MS_PER_TICK);
     }
-    if (sim && this.shownBase) this.render(sim, running ? Math.min(1, this.acc / MS_PER_TICK) : 1);
+    if (sim && this.shownBase) this.render(sim, running ? Math.min(1, this.acc / MS_PER_TICK) : 1, !!running);
   }
 
   // ---------- Поле и здания ----------
@@ -160,6 +168,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private depthOfBuilding(b: BattleBuilding): number {
+    // Лагерь — плоская площадка: под юнитами и развалинами.
+    if (b.type === 'camp') return -1.5;
     const s = BUILDINGS[b.type].size;
     return cellToWorld(b.x + s / 2, b.y + s / 2).y;
   }
@@ -210,8 +220,9 @@ export class BattleScene extends Phaser.Scene {
     return cellToWorld(x / TILE, y / TILE);
   }
 
-  private render(sim: BattleState, alpha: number): void {
-    this.k = Math.max(1, (MIN_UNIT_CSS * getDpr()) / (this.cameras.main.zoom * UNIT_SIZE.warrior));
+  private render(sim: BattleState, alpha: number, running: boolean): void {
+    const zoom = this.cameras.main.zoom;
+    this.k = Math.max(1, (MIN_EFFECT_CSS * getDpr()) / (zoom * EFFECT_SIZE));
     const k = this.k;
     const bars = this.bars.clear();
     for (const b of sim.buildings) {
@@ -225,22 +236,22 @@ export class BattleScene extends Phaser.Scene {
     }
     for (const u of sim.units) {
       if (!u.spawned) continue;
-      let view = this.units.get(u.id);
-      if (!view) {
+      let unit = this.units.get(u.id);
+      if (!unit) {
         if (!u.alive) continue;
-        view = this.addUnit(u.troop);
-        this.units.set(u.id, view);
+        unit = { view: createUnitView(this, u.troop), anim: '', dir: 's', dying: false };
+        this.units.set(u.id, unit);
       }
       const at = this.unitPoint(u, alpha);
-      const size = UNIT_SIZE[u.troop] * k;
-      view.shadow.setPosition(at.x, at.y).setDepth(at.y - 0.5);
-      view.g.setPosition(at.x, at.y - size * 0.6).setDepth(at.y);
-      if (!view.dying) {
-        view.shadow.setScale(k);
-        view.g.setScale(k);
-      }
-      if (!u.alive && !view.dying) this.killUnit(view);
-      if (u.alive && u.hp < u.stats.hp) this.hpBar(bars, at.x, at.y - size * 1.5, 14 * k, u.hp / u.stats.hp, 0xfdd835);
+      // Юнит не мельче MIN_UNIT_CSS на экране — при сильном отдалении увеличивается.
+      const ku = Math.max(1, (MIN_UNIT_CSS * getDpr()) / (zoom * unit.view.height));
+      // Глубина — по Y ног.
+      unit.view.setPosition(at.x, at.y);
+      unit.view.setDepth(at.y);
+      if (!unit.dying) unit.view.setSize(ku);
+      if (!u.alive && !unit.dying) this.killUnit(unit);
+      else if (u.alive) this.animateUnit(sim, u, unit, at, running);
+      if (u.alive && u.hp < u.stats.hp) this.hpBar(bars, at.x, at.y - unit.view.height * ku - 5 * k, 14 * k, u.hp / u.stats.hp, 0xfdd835);
     }
   }
 
@@ -251,23 +262,54 @@ export class BattleScene extends Phaser.Scene {
     g.fillStyle(ratio > 0.35 ? color : 0xe53935, 1).fillRect(cx - w / 2, y, w * Math.max(0, ratio), h);
   }
 
-  private addUnit(troop: TroopType): UnitView {
-    const size = UNIT_SIZE[troop];
-    const shadow = this.add.ellipse(0, 0, size * 1.2, size * 0.5, 0x000000, 0.25);
-    const g = this.add.graphics();
-    drawTroop(g, troop, size);
-    return { g, shadow, dying: false };
+  /**
+   * Анимация по состоянию движка (сам бой не меняется): сдвинулся за тик —
+   * run по направлению движения; стоит у живой цели — attack лицом к ней;
+   * иначе idle. За экраном анимация на паузе.
+   */
+  private animateUnit(sim: BattleState, u: BattleUnitState, unit: BattleUnit, at: Point, running: boolean): void {
+    const onScreen = isOnCamera(this.cameras.main, at.x, at.y, TILE_W);
+    unit.view.setPaused(!onScreen);
+    if (!onScreen) return;
+    const prev = this.prev.get(u.id);
+    const moving = running && prev !== undefined && (prev.x !== u.x || prev.y !== u.y);
+    const struck = this.struckBuilding(sim, u);
+    if (moving) {
+      unit.dir = directionOf(u.x - prev.x, u.y - prev.y);
+      const speed = (u.stats.speed * TICKS_PER_SECOND) / TILE;
+      this.playUnit(unit, 'run', { timeScale: speed / naturalRunSpeed(this, u.troop) });
+    } else if (running && struck) {
+      unit.dir = directionOf(struck.centerX - u.x, struck.centerY - u.y);
+      const attackMs = u.stats.attackTicks * MS_PER_TICK;
+      const cycle = unit.view.cycleMs('attack');
+      // Цикл attack длится ровно столько, сколько между ударами; начинаем так,
+      // чтобы новый цикл начался с ближайшим ударом движка.
+      this.playUnit(unit, 'attack', { timeScale: cycle > 0 ? cycle / attackMs : 1, start: 1 - u.cooldown / u.stats.attackTicks });
+    } else {
+      this.playUnit(unit, 'idle');
+    }
   }
 
-  private killUnit(view: UnitView): void {
-    view.dying = true;
-    this.tweens.add({ targets: [view.g, view.shadow], alpha: 0, scale: 0.4 * this.k, duration: 350, onComplete: () => this.destroyUnit(view) });
+  private playUnit(unit: BattleUnit, anim: string, opts: { timeScale?: number; start?: number } = {}): void {
+    unit.view.play(anim, unit.dir, opts);
+    unit.anim = anim;
   }
 
-  private destroyUnit(view: UnitView): void {
-    this.tweens.killTweensOf([view.g, view.shadow]);
-    view.g.destroy();
-    view.shadow.destroy();
+  /** Здание, которое юнит бьёт (или вот-вот ударит): сломать преграду на пути, иначе цель. */
+  private struckBuilding(sim: BattleState, u: BattleUnitState) {
+    const blocker = u.blocker >= 0 ? sim.buildings[u.blocker] : undefined;
+    if (blocker?.alive) return blocker;
+    const target = u.target >= 0 ? sim.buildings[u.target] : undefined;
+    return target?.alive ? target : undefined;
+  }
+
+  private killUnit(unit: BattleUnit): void {
+    unit.dying = true;
+    unit.view.die(unit.dir, () => unit.view.destroy());
+  }
+
+  private destroyUnit(unit: BattleUnit): void {
+    unit.view.destroy();
   }
 
   /** Здание разрушено: коробка исчезает, остаются развалины и облако пыли. */
@@ -314,17 +356,18 @@ export class BattleScene extends Phaser.Scene {
         const u = sim.units[e.unit];
         const target = buildingOf(e.building);
         if (!u || !target) return;
-        const from = this.unitPoint(u, 1);
-        const s = BUILDINGS[target.type].size;
-        const to = cellToWorld(target.x + s / 2, target.y + s / 2);
-        if (u.troop === 'archer') {
-          this.projectile({ x: from.x, y: from.y - 8 * this.k }, { x: to.x, y: to.y - 12 }, 0x8d6e63, 2, 180);
-        } else {
-          // Удар вплотную: вспышка между юнитом и зданием.
-          const at = { x: from.x + (to.x - from.x) * 0.25, y: from.y + (to.y - from.y) * 0.25 - 6 * this.k };
-          const flash = this.add.circle(at.x, at.y, (u.troop === 'ram' ? 7 : 4) * this.k, 0xffffff, 0.9).setDepth(TOP_DEPTH - 2);
-          this.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 160, onComplete: () => flash.destroy() });
+        const unit = this.units.get(u.id);
+        const show = () => this.showHit(u, target, e.damage);
+        if (!unit || unit.view.cycleMs('attack') === 0) {
+          show();
+          break;
         }
+        // Есть анимация удара: урон уже нанесён движком, а виден — на середине
+        // замаха. Цикл attack начинается заново с каждым ударом движка.
+        if (unit.anim === 'attack') unit.view.setProgress(0);
+        this.time.delayedCall(u.stats.attackTicks * MS_PER_TICK * STRIKE_AT, () => {
+          if (!unit.dying) show();
+        });
         break;
       }
       case 'deploy': {
@@ -336,6 +379,28 @@ export class BattleScene extends Phaser.Scene {
       default:
         break;
     }
+  }
+
+  /** Видимый удар юнита по зданию: снаряд лучника или вспышка, и число урона. */
+  private showHit(u: BattleUnitState, target: BattleBuilding, damage: number): void {
+    const from = this.unitPoint(u, 1);
+    const s = BUILDINGS[target.type].size;
+    const to = cellToWorld(target.x + s / 2, target.y + s / 2);
+    if (u.troop === 'archer') {
+      this.projectile({ x: from.x, y: from.y - 8 * this.k }, { x: to.x, y: to.y - 12 }, 0x8d6e63, 2, 180);
+      return;
+    }
+    // Удар вплотную: вспышка между юнитом и зданием.
+    const at = { x: from.x + (to.x - from.x) * 0.25, y: from.y + (to.y - from.y) * 0.25 - 10 * this.k };
+    const flash = this.add.circle(at.x, at.y, (u.troop === 'ram' ? 7 : 4) * this.k, 0xffffff, 0.9).setDepth(TOP_DEPTH - 2);
+    this.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 160, onComplete: () => flash.destroy() });
+    const label = this.add
+      .text(at.x, at.y, `-${damage}`, { fontFamily: FONT, fontSize: '11px', fontStyle: 'bold', color: '#ffeb3b', resolution: getDpr() })
+      .setOrigin(0.5, 1)
+      .setStroke('#000000', 3)
+      .setScale(this.k)
+      .setDepth(TOP_DEPTH - 1);
+    this.tweens.add({ targets: label, y: at.y - 16 * this.k, alpha: { from: 1, to: 0 }, duration: 600, ease: 'Cubic.Out', onComplete: () => label.destroy() });
   }
 
   private projectile(from: Point, to: Point, color: number, r: number, duration: number): void {

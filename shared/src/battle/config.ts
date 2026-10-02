@@ -51,6 +51,7 @@ export const BUILDING_TARGET_GROUP: Readonly<Record<BuildingType, Exclude<Target
   goldmine: null,
   farm: null,
   barracks: null,
+  camp: null,
   tower: 'defense',
   wall: 'wall',
 };

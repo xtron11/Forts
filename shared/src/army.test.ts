@@ -12,7 +12,7 @@ import {
   type TrainingItem,
 } from './army';
 import type { BuildingState } from './economy';
-import { BARRACKS_CAPACITY, TROOPS, troopLevelFor } from './troops';
+import { CAMP_CAPACITY, TROOPS, troopLevelFor } from './troops';
 
 const T0 = Date.UTC(2026, 8, 25, 12, 0, 0);
 const warrior1 = TROOPS.warrior.levels[0]!;
@@ -21,6 +21,13 @@ function barracks(level: number, finishAt: number | null = null): BuildingState 
   return { type: 'barracks', level, finishAt, collectedAt: T0, stored: 0 };
 }
 
+function camp(level: number, finishAt: number | null = null): BuildingState {
+  return { type: 'camp', level, finishAt, collectedAt: T0, stored: 0 };
+}
+
+/** Казарма и лагерь 1-го уровня. */
+const BASIC = [barracks(1), camp(1)];
+
 function item(id: number, finishAt: number, troop: TrainingItem['troop'] = 'warrior'): TrainingItem {
   return { id, troop, level: 1, food: TROOPS[troop].levels[0]!.food, seconds: TROOPS[troop].levels[0]!.trainSeconds, finishAt };
 }
@@ -28,10 +35,10 @@ function item(id: number, finishAt: number, troop: TrainingItem['troop'] = 'warr
 const rich = { gold: 0, food: 100_000 };
 
 describe('казарма и армия', () => {
-  it('место в армии — сумма по казармам, строящаяся (ур. 0) не считается', () => {
-    assert.equal(armyCapacity([barracks(1), barracks(2)], T0), BARRACKS_CAPACITY[0]! + BARRACKS_CAPACITY[1]!);
-    assert.equal(armyCapacity([barracks(0, T0 + 1000)], T0), 0);
-    assert.equal(armyCapacity([barracks(0, T0 + 1000)], T0 + 1000), BARRACKS_CAPACITY[0]);
+  it('место в армии — сумма по лагерям, строящийся (ур. 0) и казармы не считаются', () => {
+    assert.equal(armyCapacity([camp(1), camp(2), barracks(3)], T0), CAMP_CAPACITY[0]! + CAMP_CAPACITY[1]!);
+    assert.equal(armyCapacity([camp(0, T0 + 1000)], T0), 0);
+    assert.equal(armyCapacity([camp(0, T0 + 1000)], T0 + 1000), CAMP_CAPACITY[0]);
     assert.equal(barracksLevel([barracks(1), barracks(3)], T0), 3);
   });
 
@@ -42,24 +49,25 @@ describe('казарма и армия', () => {
     assert.equal(troopLevelFor('warrior', 4), TROOPS.warrior.levels.length);
   });
 
-  it('нельзя без казармы, без нужного уровня, без места и без еды', () => {
-    assert.deepEqual(checkTrain(rich, [], [], [], 'warrior', 1, T0), { ok: false, reason: 'no_barracks' });
-    assert.deepEqual(checkTrain(rich, [barracks(1)], [], [], 'ram', 1, T0), {
+  it('нельзя без казармы, без лагеря, без нужного уровня, без места и без еды', () => {
+    assert.deepEqual(checkTrain(rich, [camp(1)], [], [], 'warrior', 1, T0), { ok: false, reason: 'no_barracks' });
+    assert.deepEqual(checkTrain(rich, [barracks(1)], [], [], 'warrior', 1, T0), { ok: false, reason: 'no_camp' });
+    assert.deepEqual(checkTrain(rich, BASIC, [], [], 'ram', 1, T0), {
       ok: false,
       reason: 'barracks_level_too_low',
       requiredBarracks: TROOPS.ram.levels[0]!.barracksLevel,
     });
-    assert.equal(checkTrain(rich, [barracks(1)], [], [], 'dragon', 1, T0).ok, false);
-    assert.equal(checkTrain(rich, [barracks(1)], [], [], 'warrior', 0, T0).ok, false);
+    assert.equal(checkTrain(rich, BASIC, [], [], 'dragon', 1, T0).ok, false);
+    assert.equal(checkTrain(rich, BASIC, [], [], 'warrior', 0, T0).ok, false);
 
-    const cap = BARRACKS_CAPACITY[0]!;
+    const cap = CAMP_CAPACITY[0]!;
     const army = [{ troop: 'warrior' as const, level: 1, count: cap - 2 }];
-    assert.equal(checkTrain(rich, [barracks(1)], army, [], 'warrior', 2, T0).ok, true);
-    assert.deepEqual(checkTrain(rich, [barracks(1)], army, [item(1, T0 + 1)], 'warrior', 2, T0), { ok: false, reason: 'army_full', free: 1 });
+    assert.equal(checkTrain(rich, BASIC, army, [], 'warrior', 2, T0).ok, true);
+    assert.deepEqual(checkTrain(rich, BASIC, army, [item(1, T0 + 1)], 'warrior', 2, T0), { ok: false, reason: 'army_full', free: 1 });
 
     const poor = { gold: 0, food: warrior1.food * 3 - 1 };
-    assert.deepEqual(checkTrain(poor, [barracks(1)], [], [], 'warrior', 3, T0), { ok: false, reason: 'not_enough_resources' });
-    assert.deepEqual(checkTrain(poor, [barracks(1)], [], [], 'warrior', 2, T0), { ok: true, level: 1, food: warrior1.food, seconds: warrior1.trainSeconds });
+    assert.deepEqual(checkTrain(poor, BASIC, [], [], 'warrior', 3, T0), { ok: false, reason: 'not_enough_resources' });
+    assert.deepEqual(checkTrain(poor, BASIC, [], [], 'warrior', 2, T0), { ok: true, level: 1, food: warrior1.food, seconds: warrior1.trainSeconds });
   });
 
   it('юниты тренируются по одному друг за другом и переходят в армию после finishAt', () => {

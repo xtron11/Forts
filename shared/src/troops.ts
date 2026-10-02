@@ -151,8 +151,8 @@ export function troopLevelFor(type: TroopType, barracksLevel: number): number {
   return level;
 }
 
-/** Место в армии, которое даёт казарма по уровням; индекс = уровень − 1. Казармы складываются. */
-export const BARRACKS_CAPACITY: readonly number[] = [20, 30, 40, 50];
+/** Место в армии, которое даёт лагерь по уровням; индекс = уровень − 1. Лагеря складываются. */
+export const CAMP_CAPACITY: readonly number[] = [20, 30, 40, 50];
 
 /** Сколько юнитов можно заказать одним запросом тренировки. */
 export const MAX_TRAIN_BATCH = 50;

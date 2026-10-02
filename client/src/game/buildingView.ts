@@ -9,6 +9,8 @@ const STUB_HEIGHT: Record<BuildingType, number> = {
   goldmine: 1.2,
   farm: 0.6,
   barracks: 1.5,
+  // Лагерь — низкая площадка: на ней стоят войска.
+  camp: 0.25,
   tower: 2.6,
   wall: 0.9,
 };
@@ -74,6 +76,7 @@ export function drawBuilding(g: Phaser.GameObjects.Graphics, type: BuildingType,
     g.fillPath();
     g.strokePath();
   }
+  if (type === 'camp' && !constructing) drawCampDetails(g, b, color);
   if (constructing) {
     // Стойки лесов по углам.
     const full = b.up;
@@ -81,5 +84,22 @@ export function drawBuilding(g: Phaser.GameObjects.Graphics, type: BuildingType,
     for (const p of [left, bottom, right, top]) g.lineBetween(p.x, p.y, p.x, full(p).y);
     g.lineBetween(full(left).x, full(left).y, full(bottom).x, full(bottom).y);
     g.lineBetween(full(bottom).x, full(bottom).y, full(right).x, full(right).y);
+  }
+}
+
+/** Утоптанная земля посередине и столбы с флажками по дальним углам — чтобы не закрывать войска. */
+function drawCampDetails(g: Phaser.GameObjects.Graphics, b: ReturnType<typeof box>, color: number): void {
+  const { top, right, bottom, left, up } = b;
+  const cx = top.x;
+  const cy = (top.y + bottom.y) / 2;
+  const inset = (p: Point): Point => up({ x: cx + (p.x - cx) * 0.8, y: cy + (p.y - cy) * 0.8 });
+  g.fillStyle(shade(color, 0.35), 1);
+  polygon(g, [top, right, bottom, left].map(inset));
+  g.fillPath();
+  const pole = TILE_H * 1.1;
+  for (const corner of [left, top, right]) {
+    const base = up(corner);
+    g.lineStyle(2, shade(color, -0.6), 1).lineBetween(base.x, base.y, base.x, base.y - pole);
+    g.fillStyle(0xe53935, 1).fillTriangle(base.x, base.y - pole, base.x + 9, base.y - pole + 3, base.x, base.y - pole + 6);
   }
 }

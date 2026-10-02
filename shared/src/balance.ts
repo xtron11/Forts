@@ -92,6 +92,7 @@ const TOWNHALL_LIMITS: Readonly<Record<BuildingType, readonly number[]>> = {
   goldmine: [2, 3,  4,  5,  6],
   farm:     [2, 3,  4,  5,  6],
   barracks: [1, 1,  2,  2,  3],
+  camp:     [1, 1,  2,  2,  3],
   tower:    [0, 1,  2,  3,  4],
   wall:     [0, 8, 16, 24, 32],
 };
@@ -116,6 +117,7 @@ export const TOWNHALL_LEVELS: readonly TownhallLevel[] = TOWNHALL_ROWS.map(([gol
     goldmine: TOWNHALL_LIMITS.goldmine[i]!,
     farm: TOWNHALL_LIMITS.farm[i]!,
     barracks: TOWNHALL_LIMITS.barracks[i]!,
+    camp: TOWNHALL_LIMITS.camp[i]!,
     tower: TOWNHALL_LIMITS.tower[i]!,
     wall: TOWNHALL_LIMITS.wall[i]!,
   },
@@ -138,6 +140,14 @@ export const BUILDING_LEVELS: Readonly<Record<BuildingType, readonly BuildingLev
     [0,  1500,  5 * M, 2, 600],
     [0,  6000, 30 * M, 3, 700],
     [0, 20000,  2 * H, 4, 800],
+  ]),
+  // Место в армии по уровням — CAMP_CAPACITY в troops.ts.
+  // prettier-ignore
+  camp: levels([
+    [0,   250, 30 * S, 1, 400],
+    [0,  2000, 10 * M, 2, 450],
+    [0,  7000, 40 * M, 3, 500],
+    [0, 22000,  2 * H, 4, 560],
   ]),
   // prettier-ignore
   tower: levels([
