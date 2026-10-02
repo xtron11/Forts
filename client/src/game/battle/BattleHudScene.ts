@@ -18,8 +18,12 @@ import { errorMessage } from '../messages';
 import { RESOURCE_COLORS, toCss } from '../theme';
 import type { BattleController, DeployRejection } from './BattleController';
 import { BATTLE_BOTTOM_BAR, BATTLE_PAD, BATTLE_TOP_BAR } from './layout';
-import { drawTroop } from './troopView';
+import { troopAnimations } from '../units/art';
+import { pickResultPose, type ResultPose } from './resultPose';
+import { addTroopIcon, addTroopPose } from './troopView';
 
+/** Высота места под юнита с анимацией victory/defeat в окне итога, CSS-пиксели. */
+const RESULT_POSE_H = 96;
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const STAR_COLOR = 0xffc107;
 
@@ -40,6 +44,8 @@ export class BattleHudScene extends Phaser.Scene {
   private toastObj: Phaser.GameObjects.Text | undefined;
   private rebuildPending = false;
   private bottomTop = 0;
+  /** Персонаж окна итога: выбирается один раз на итог, а не при каждой перерисовке. */
+  private pose: { report: unknown; pose: ResultPose | null } | undefined;
 
   constructor() {
     super('battleHud');
@@ -312,9 +318,7 @@ export class BattleHudScene extends Phaser.Scene {
       const selected = this.ctrl.selected === troop;
       const before = this.children.list.length;
       this.panel(cx, cy, cw, ch, s, selected ? palette.accent : palette.hudBg, selected ? palette.accent : palette.hudMuted, 1);
-      const icon = this.add.graphics();
-      drawTroop(icon, troop, 24 * s);
-      icon.setPosition(cx + cw / 2, cy + ch * 0.36);
+      addTroopIcon(this, troop, cx + cw / 2, cy + ch * 0.36, 24 * s);
       const color = selected ? 0xffffff : palette.hudText;
       this.text(cx + cw / 2, cy + ch * 0.68, t(`troop.${troop}` as TextKey), 12 * s, color, true).setOrigin(0.5);
       this.text(cx + cw - 6 * s, cy + 4 * s, `×${count}`, 14 * s, color, true).setOrigin(1, 0);
@@ -344,12 +348,17 @@ export class BattleHudScene extends Phaser.Scene {
     if (p.kind !== 'result') return;
     const { report } = p;
     const { palette } = this.ctx.ui;
+    if (this.pose?.report !== report) {
+      this.pose = { report, pose: pickResultPose(report, (troop, anim) => troopAnimations(this, troop)?.has(anim) ?? false) };
+    }
+    const pose = this.pose.pose;
+    const poseH = pose ? RESULT_POSE_H : 0;
     this.add.rectangle(0, 0, width, height, 0x000000, 0.55).setOrigin(0);
 
     const w = Math.min(340 * s, width - 32 * s);
     const lossesLines = Math.max(1, report.troopsUsed.length);
     const capped = report.gained.gold < report.loot.gold || report.gained.food < report.loot.food;
-    const h = (266 + lossesLines * 22 + (capped ? 20 : 0) + (report.reason === 'timeout' ? 20 : 0)) * s;
+    const h = (266 + poseH + lossesLines * 22 + (capped ? 20 : 0) + (report.reason === 'timeout' ? 20 : 0)) * s;
     const x = (width - w) / 2;
     let y = (height - h) / 2;
     this.panel(x, y, w, h, s, undefined, palette.accent);
@@ -358,7 +367,14 @@ export class BattleHudScene extends Phaser.Scene {
     y += 16 * s;
     const victory = report.stars > 0;
     this.text(cx, y, t(victory ? 'battle.victory' : 'battle.defeat'), 22 * s, victory ? palette.valid : palette.danger, true).setOrigin(0.5, 0);
-    y += 40 * s;
+    y += 34 * s;
+    // Выживший празднует победу или погибший сердится из-за поражения.
+    if (pose) {
+      addTroopPose(this, pose.troop, pose.anim, cx, y + RESULT_POSE_H * s, (RESULT_POSE_H - 6) * s);
+      y += (RESULT_POSE_H + 6) * s;
+    } else {
+      y += 6 * s;
+    }
     for (let i = 0; i < 3; i++) {
       const g = this.star(cx + (i - 1) * 44 * s, y + 18 * s, 18 * s, i < report.stars, s).setScale(0.2).setAlpha(0);
       this.tweens.add({ targets: g, scale: 1, alpha: 1, delay: 150 + i * 200, duration: 250, ease: 'Back.Out' });
@@ -383,9 +399,7 @@ export class BattleHudScene extends Phaser.Scene {
       this.text(x + 18 * s, y, t('battle.noLosses'), 14 * s, palette.hudText).setOrigin(0, 0.5);
     }
     for (const used of mergeLevels(report.troopsUsed)) {
-      const icon = this.add.graphics();
-      drawTroop(icon, used.troop, 14 * s);
-      icon.setPosition(x + 28 * s, y);
+      addTroopIcon(this, used.troop, x + 28 * s, y, 14 * s);
       this.text(x + 44 * s, y, `${t(`troop.${used.troop}` as TextKey)} ×${used.count}`, 14 * s, palette.hudText).setOrigin(0, 0.5);
       y += 22 * s;
     }

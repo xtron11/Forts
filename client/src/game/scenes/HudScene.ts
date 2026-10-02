@@ -17,6 +17,7 @@ import {
   troopLevelConfig,
   troopLevelFor,
   barracksLevel,
+  CAMP_CAPACITY,
   type BuildingType,
   type PlacedBuilding,
   type Resources,
@@ -24,7 +25,7 @@ import {
 import { ApiError } from '../../api/ApiClient';
 import { t, type TextKey } from '../../i18n';
 import { openBattle } from '../battle/flow';
-import { drawTroop } from '../battle/troopView';
+import { addTroopIcon } from '../battle/troopView';
 import { polygon } from '../buildingView';
 import { getGameContext, type GameContext } from '../context';
 import { getDpr } from '../display';
@@ -404,6 +405,7 @@ export class HudScene extends Phaser.Scene {
     }
     const thCfg = b.type === 'townhall' ? townhallConfig(b.level) : undefined;
     if (thCfg) lines.push(t('panel.storage', { amount: formatNumber(thCfg.storage.gold) }));
+    if (b.type === 'camp' && b.level >= 1) lines.push(t('panel.camp', { capacity: CAMP_CAPACITY[Math.min(b.level, CAMP_CAPACITY.length) - 1]! }));
     const levelCfg = levelConfig(b.type, Math.max(1, b.level));
     if (levelCfg) lines.push(t('panel.hp', { hp: formatNumber(levelCfg.hp) }));
 
@@ -523,9 +525,7 @@ export class HudScene extends Phaser.Scene {
       const cfg = troopLevelConfig(troop, Math.max(1, level))!;
       const before = this.children.list.length;
       this.panel(bx, by, bw, bh, s, palette.hudBg, check.ok ? palette.accent : palette.hudMuted);
-      const icon = this.add.graphics();
-      drawTroop(icon, troop, 15 * s);
-      icon.setPosition(bx + 17 * s, by + bh / 2);
+      addTroopIcon(this, troop, bx + 17 * s, by + bh / 2, 15 * s);
       const tx = bx + 34 * s;
       this.text(tx, by + bh / 2 - 1 * s, t(`troop.${troop}`), 12 * s, palette.hudText, true).setOrigin(0, 1);
       if (level === 0) {

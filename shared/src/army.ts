@@ -4,13 +4,13 @@
  * готовые юниты переходят в армию при первом запросе после finishAt.
  *
  * Очередь одна на игрока, юниты тренируются по одному друг за другом.
- * Место в армии — сумма мест всех готовых казарм.
+ * Место в армии — сумма мест всех готовых лагерей; казарма только тренирует.
  */
 import type { BuildingState } from './economy';
 import { settleBuilding } from './economy';
 import type { Resources } from './resources';
 import {
-  BARRACKS_CAPACITY,
+  CAMP_CAPACITY,
   isTroopType,
   MAX_TRAIN_BATCH,
   TROOP_TYPES,
@@ -49,13 +49,13 @@ export function barracksLevel(buildings: readonly BuildingState[], now: number):
   return level;
 }
 
-/** Место в армии: сумма по готовым казармам (улучшающаяся считается по текущему уровню). */
+/** Место в армии: сумма по готовым лагерям (улучшающийся считается по текущему уровню). */
 export function armyCapacity(buildings: readonly BuildingState[], now: number): number {
   let total = 0;
   for (const b of buildings) {
-    if (b.type !== 'barracks') continue;
+    if (b.type !== 'camp') continue;
     const level = settleBuilding(b, now).level;
-    if (level >= 1) total += BARRACKS_CAPACITY[Math.min(level, BARRACKS_CAPACITY.length) - 1]!;
+    if (level >= 1) total += CAMP_CAPACITY[Math.min(level, CAMP_CAPACITY.length) - 1]!;
   }
   return total;
 }
@@ -107,6 +107,7 @@ export type TrainError =
   | 'unknown_troop'
   | 'invalid_count'
   | 'no_barracks'
+  | 'no_camp'
   | 'barracks_level_too_low'
   | 'army_full'
   | 'not_enough_resources';
@@ -123,7 +124,7 @@ export type TrainCheck =
     };
 
 /**
- * Можно ли заказать count юнитов troop: есть казарма нужного уровня,
+ * Можно ли заказать count юнитов troop: есть казарма нужного уровня, лагерь,
  * хватает места (с учётом очереди) и еды. Юниты тренируются на уровне,
  * который даёт лучшая казарма.
  */
@@ -142,7 +143,9 @@ export function checkTrain(
   if (bLevel < 1) return { ok: false, reason: 'no_barracks' };
   const level = troopLevelFor(troop, bLevel);
   if (level < 1) return { ok: false, reason: 'barracks_level_too_low', requiredBarracks: TROOPS[troop].levels[0]!.barracksLevel };
-  const free = armyCapacity(buildings, now) - usedHousing(army, queue);
+  const capacity = armyCapacity(buildings, now);
+  if (capacity === 0) return { ok: false, reason: 'no_camp' };
+  const free = capacity - usedHousing(army, queue);
   if (TROOPS[troop].housing * count > free) return { ok: false, reason: 'army_full', free: Math.max(0, free) };
   const cfg = troopLevelConfig(troop, level)!;
   if (resources.food < cfg.food * count) return { ok: false, reason: 'not_enough_resources' };

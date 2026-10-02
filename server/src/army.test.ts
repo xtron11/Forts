@@ -7,7 +7,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import type { FastifyInstance } from 'fastify';
 import {
   API_ROUTES,
-  BARRACKS_CAPACITY,
+  CAMP_CAPACITY,
   BUILDING_LEVELS,
   buildingPath,
   STARTING_RESOURCES,
@@ -31,6 +31,7 @@ const SEC = 1000;
 const MIN = 60 * SEC;
 const warrior1 = TROOPS.warrior.levels[0]!;
 const barracks1 = BUILDING_LEVELS.barracks[0]!;
+const camp1 = BUILDING_LEVELS.camp[0]!;
 
 let clock = T0;
 let app: FastifyInstance;
@@ -67,11 +68,13 @@ async function setFood(p: Player, food: number): Promise<void> {
   await db!.query('UPDATE players SET food = $2 WHERE id = $1', [p.id, food]);
 }
 
-/** Казарма, построенная к моменту clock. */
+/** Казарма и лагерь, построенные к моменту clock (оба строителя заняты одновременно). */
 async function readyBarracks(p: Player): Promise<void> {
-  const res = await call<PlaceBuildingResponse>(p, 'POST', API_ROUTES.buildings, { type: 'barracks', x: 0, y: 0 });
-  assert.equal(res.status, 201, res.body.message);
-  clock += barracks1.buildSeconds * SEC;
+  for (const [type, x] of [['barracks', 0], ['camp', 3]] as const) {
+    const res = await call<PlaceBuildingResponse>(p, 'POST', API_ROUTES.buildings, { type, x, y: 0 });
+    assert.equal(res.status, 201, res.body.message);
+  }
+  clock += Math.max(barracks1.buildSeconds, camp1.buildSeconds) * SEC;
 }
 
 describe('казарма и армия', { skip }, () => {
@@ -107,14 +110,14 @@ describe('казарма и армия', { skip }, () => {
     const start = clock;
     const res = await train(p, 'warrior', 3);
     assert.equal(res.status, 200, res.body.message);
-    const food = STARTING_RESOURCES.food - barracks1.cost.food - 3 * warrior1.food;
+    const food = STARTING_RESOURCES.food - barracks1.cost.food - camp1.cost.food - 3 * warrior1.food;
     assert.equal(res.body.player.resources.food, food);
     const step = warrior1.trainSeconds * SEC;
     assert.deepEqual(
       res.body.army.queue.map((q) => q.finishAt),
       [start + step, start + 2 * step, start + 3 * step],
     );
-    assert.equal(res.body.army.capacity, BARRACKS_CAPACITY[0]);
+    assert.equal(res.body.army.capacity, CAMP_CAPACITY[0]);
     assert.equal(res.body.army.used, 3);
 
     clock = start + step - 1;
@@ -142,7 +145,7 @@ describe('казарма и армия', { skip }, () => {
     assert.equal(poor.body.error, 'not_enough_resources');
 
     await setFood(p, 100_000);
-    const cap = BARRACKS_CAPACITY[0]!;
+    const cap = CAMP_CAPACITY[0]!;
     assert.equal((await train(p, 'warrior', cap)).status, 200);
     const full = await train(p, 'warrior', 1);
     assert.equal(full.status, 422);
@@ -150,6 +153,14 @@ describe('казарма и армия', { skip }, () => {
     // Место занимают и готовые юниты.
     clock += cap * warrior1.trainSeconds * SEC;
     assert.equal((await train(p, 'warrior', 1)).body.error, 'army_full');
+  });
+
+  it('без лагеря тренировать некуда', async () => {
+    const p = await newPlayer();
+    const res = await call<PlaceBuildingResponse>(p, 'POST', API_ROUTES.buildings, { type: 'barracks', x: 0, y: 0 });
+    assert.equal(res.status, 201, res.body.message);
+    clock += barracks1.buildSeconds * SEC;
+    assert.equal((await train(p, 'warrior', 1)).body.error, 'no_camp');
   });
 
   it('таран требует казарму 3-го уровня', async () => {
@@ -161,7 +172,8 @@ describe('казарма и армия', { skip }, () => {
     const res = await train(p, 'ram', 2);
     assert.equal(res.status, 200, res.body.message);
     assert.equal(res.body.army.used, 2 * TROOPS.ram.housing);
-    assert.equal(res.body.army.capacity, BARRACKS_CAPACITY[2]);
+    // Место даёт лагерь, а не казарма.
+    assert.equal(res.body.army.capacity, CAMP_CAPACITY[0]);
   });
 
   it('отмена возвращает еду и сдвигает очередь', async () => {

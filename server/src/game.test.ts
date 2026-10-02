@@ -250,7 +250,7 @@ describe('игровые запросы', { skip }, () => {
 
     assert.equal((await move(p, id, 10, 9)).status, 200); // пересекается только с самим собой
     assert.equal((await move(p, id, 4, 4)).body.error, 'overlap');
-    assert.equal((await move(p, id, 11, 11)).body.error, 'out_of_bounds');
+    assert.equal((await move(p, id, 13, 13)).body.error, 'out_of_bounds'); // поле 14×14
 
     const other = await newPlayer();
     assert.equal((await move(other, id, 0, 0)).status, 404);

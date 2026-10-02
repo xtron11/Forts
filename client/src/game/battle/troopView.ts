@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import { TROOPS, type TroopType } from '@forts/shared';
 import { shade } from '../theme';
+import { troopAnimations } from '../units/art';
 
 /**
  * Юнит-заглушка с центром в (0, 0): у каждого войска своя фигура, чтобы
@@ -28,4 +29,45 @@ export function drawTroop(g: Phaser.GameObjects.Graphics, troop: TroopType, size
       g.fillStyle(shade(color, -0.4), 1).fillCircle(-r * 0.7, r * 0.7, r * 0.35).fillCircle(r * 0.7, r * 0.7, r * 0.35);
       break;
   }
+}
+
+/**
+ * Иконка войска с центром в (x, y): первый кадр idle из атласа, а если
+ * спрайта нет (или атлас ещё не загружен) — фигура-заглушка. size — как у drawTroop.
+ */
+export function addTroopIcon(scene: Phaser.Scene, troop: TroopType, x: number, y: number, size: number): Phaser.GameObjects.Image | Phaser.GameObjects.Graphics {
+  const anims = troopAnimations(scene, troop);
+  if (!anims) {
+    const g = scene.add.graphics().setPosition(x, y);
+    drawTroop(g, troop, size);
+    return g;
+  }
+  // Фигура — примерно половина высоты кадра над ногами; вписываем её в 1.6 × size.
+  const image = scene.add.image(0, 0, anims.texture, anims.portraitFrame).setOrigin(anims.anchor.x, anims.anchor.y);
+  const body = image.frame.realHeight * 0.45;
+  const scale = (size * 1.6) / body;
+  return image.setScale(scale).setPosition(x, y + (body * scale) / 2);
+}
+
+/**
+ * Юнит во весь рост лицом к зрителю, играет anim (victory/defeat в окне итога;
+ * нет в атласе — idle). (x, y) — точка ног, height — место над ногами.
+ * Если спрайта нет — иконка-заглушка.
+ */
+export function addTroopPose(
+  scene: Phaser.Scene,
+  troop: TroopType,
+  anim: string,
+  x: number,
+  y: number,
+  height: number,
+): Phaser.GameObjects.Sprite | Phaser.GameObjects.Image | Phaser.GameObjects.Graphics {
+  const anims = troopAnimations(scene, troop);
+  const resolved = anims?.resolve([anim], 's');
+  if (!anims || !resolved) return addTroopIcon(scene, troop, x, y - height / 2, height / 2);
+  const sprite = scene.add.sprite(x, y, anims.texture, anims.portraitFrame).setOrigin(anims.anchor.x, anims.anchor.y);
+  // С поднятым оружием фигура занимает до ~55% кадра над ногами.
+  sprite.setScale(height / (sprite.frame.realHeight * 0.55));
+  sprite.play(resolved.key);
+  return sprite;
 }

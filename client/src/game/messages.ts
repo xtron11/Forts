@@ -53,6 +53,8 @@ export function errorMessage(code: string): Message {
       return { key: 'reason.armyFull' };
     case 'no_barracks':
       return { key: 'reason.noBarracks' };
+    case 'no_camp':
+      return { key: 'reason.noCamp' };
     case 'barracks_level_too_low':
       return { key: 'reason.barracks', params: { level: '?' } };
     case 'no_troops':

@@ -26,6 +26,7 @@ export const en: Dictionary = {
   'building.goldmine': 'Gold Mine',
   'building.farm': 'Farm',
   'building.barracks': 'Barracks',
+  'building.camp': 'Army Camp',
   'building.tower': 'Tower',
   'building.wall': 'Wall',
 

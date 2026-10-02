@@ -14,8 +14,9 @@ export interface BotTemplate {
   id: string;
   townhallLevel: number;
   /**
-   * Карта 12×12, строка — ряд y. Буква заполняет всё основание здания:
-   * T ратуша (3×3), G шахта, F ферма, B казарма (2×2), D башня, W стена, . пусто.
+   * Квадратная карта (12×12 — ставится в середину поля), строка — ряд y. Буква
+   * заполняет всё основание здания: T ратуша (3×3), G шахта, F ферма, B казарма
+   * (2×2), C лагерь (3×3), D башня, W стена, . пусто.
    */
   layout: readonly string[];
 }
@@ -25,6 +26,7 @@ const LETTERS: Readonly<Record<string, BuildingType>> = {
   G: 'goldmine',
   F: 'farm',
   B: 'barracks',
+  C: 'camp',
   D: 'tower',
   W: 'wall',
 };
@@ -36,6 +38,7 @@ const LEVELS_BY_TOWNHALL: Readonly<Record<BuildingType, readonly number[]>> = {
   goldmine: [1, 2, 3, 4, 5],
   farm:     [1, 2, 3, 4, 5],
   barracks: [1, 1, 2, 3, 4],
+  camp:     [1, 1, 2, 3, 4],
   tower:    [1, 1, 2, 3, 4],
   wall:     [1, 1, 2, 3, 4],
 };
@@ -284,9 +287,11 @@ export function generateBotBase(template: BotTemplate, seed: number): BattleBase
   const n = BASE_GRID_SIZE;
   const th = template.townhallLevel;
   const variant = rng.int(8);
+  // Карта меньше поля — в середину.
+  const offset = Math.floor((n - template.layout.length) / 2);
   const buildings: BattleBuilding[] = parseLayout(template.layout).map((b, i) => {
     const size = BUILDINGS[b.type].size;
-    const { x, y } = transform(variant, b.x, b.y, size, n);
+    const { x, y } = transform(variant, b.x + offset, b.y + offset, size, n);
     let level = LEVELS_BY_TOWNHALL[b.type][th - 1]!;
     if (b.type !== 'townhall' && level > 1 && rng.int(100) < LEVEL_DROP_PERCENT) level--;
     if (!levelConfig(b.type, level)) throw new Error(`bot ${template.id}: no level ${level} for ${b.type}`);

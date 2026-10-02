@@ -23,6 +23,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   unknown_troop: 400,
   invalid_count: 400,
   no_barracks: 422,
+  no_camp: 422,
   barracks_level_too_low: 422,
   army_full: 422,
   // Бой: неверные высадки — 422 (запрос корректный, но так нельзя).

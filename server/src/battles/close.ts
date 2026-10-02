@@ -36,7 +36,8 @@ export interface BattleRow {
   deployments: DeployOrder[];
   end_tick: number | null;
   end_reason: BattleEndReason | null;
-  result: Omit<BattleReport, 'id'> | null;
+  /** troopsSurvived может не быть в итогах старых боёв. */
+  result: (Omit<BattleReport, 'id' | 'troopsSurvived'> & Partial<Pick<BattleReport, 'troopsSurvived'>>) | null;
   started_at: Date | null;
 }
 
@@ -53,7 +54,9 @@ export interface PlayerState {
 }
 
 export function toReport(row: Pick<BattleRow, 'id' | 'result'>): BattleReport {
-  return { id: row.id, ...row.result! };
+  // В итогах боёв до появления troopsSurvived этого поля нет.
+  const result = row.result!;
+  return { id: row.id, ...result, troopsSurvived: result.troopsSurvived ?? [] };
 }
 
 /**
@@ -98,6 +101,7 @@ export async function closeBattle(
     loot: r.loot,
     gained,
     troopsUsed: r.troopsUsed,
+    troopsSurvived: r.troopsSurvived,
     endTick: r.endTick,
     hash: r.hash,
   };

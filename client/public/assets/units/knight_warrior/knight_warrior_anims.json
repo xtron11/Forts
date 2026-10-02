@@ -1,0 +1,97 @@
+{
+  "character": "knight_warrior",
+  "atlas": "knight_warrior.json",
+  "frameSize": 128,
+  "fps": 12,
+  "anchor": {
+    "x": 0.5,
+    "y": 0.88
+  },
+  "frameName": "{anim}/{dir}/{frame:02d}",
+  "animations": {
+    "idle": {
+      "frames": 22,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "walk": {
+      "frames": 12,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "run": {
+      "frames": 8,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "attack": {
+      "frames": 38,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    },
+    "victory": {
+      "frames": 98,
+      "loop": true,
+      "directions": [
+        "s"
+      ]
+    },
+    "defeat": {
+      "frames": 16,
+      "loop": true,
+      "directions": [
+        "s"
+      ]
+    },
+    "death": {
+      "frames": 36,
+      "loop": true,
+      "directions": [
+        "s",
+        "se",
+        "e",
+        "ne",
+        "n",
+        "nw",
+        "w",
+        "sw"
+      ]
+    }
+  }
+}

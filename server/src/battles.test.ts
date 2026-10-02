@@ -236,6 +236,7 @@ describe('бой с базой-ботом', { skip }, () => {
     assert.equal(report.destruction, client.result.destruction);
     assert.deepEqual(report.loot, client.result.loot);
     assert.deepEqual(report.troopsUsed, client.result.troopsUsed);
+    assert.deepEqual(report.troopsSurvived, client.result.troopsSurvived);
     assert.equal(report.reason, 'finish');
 
     const cap = townhallConfig(1)!.storage;
